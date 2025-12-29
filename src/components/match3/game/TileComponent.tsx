@@ -1,6 +1,6 @@
 // Tile Component for Match-3 Game
 
-import React from 'react';
+import React, { memo } from 'react';
 import { Tile, GEM_IMAGES } from '@/game/types';
 
 interface TileComponentProps {
@@ -8,9 +8,12 @@ interface TileComponentProps {
   size: number;
   isSelected: boolean;
   onClick: () => void;
+  onTouchStart?: (e: React.TouchEvent) => void;
+  onTouchMove?: (e: React.TouchEvent) => void;
+  onTouchEnd?: (e: React.TouchEvent) => void;
 }
 
-const TileComponent: React.FC<TileComponentProps> = ({ tile, size, isSelected, onClick }) => {
+const TileComponent: React.FC<TileComponentProps> = memo(({ tile, size, isSelected, onClick, onTouchStart, onTouchMove, onTouchEnd }) => {
   const getBackgroundStyle = (): React.CSSProperties => {
     if (tile.type === 'empty') {
       return { backgroundColor: 'transparent' };
@@ -18,18 +21,19 @@ const TileComponent: React.FC<TileComponentProps> = ({ tile, size, isSelected, o
     
     if (tile.type === 'stone') {
       return {
-        background: 'linear-gradient(135deg, #374151 0%, #1f2937 50%, #111827 100%)',
-        boxShadow: 'inset 0 2px 4px rgba(255,255,255,0.2), inset 0 -2px 4px rgba(0,0,0,0.4), 0 0 8px rgba(75,85,99,0.3)',
-        border: '1px solid rgba(156,163,175,0.3)',
+        background: 'linear-gradient(135deg, #4b5563 0%, #374151 30%, #1f2937 60%, #111827 100%)',
+        boxShadow: 'inset 0 3px 6px rgba(255,255,255,0.25), inset 0 -3px 6px rgba(0,0,0,0.5), 0 0 12px rgba(75,85,99,0.4), 0 4px 8px rgba(0,0,0,0.3)',
+        border: '2px solid rgba(156,163,175,0.4)',
+        position: 'relative' as const,
       };
     }
     
     if (tile.type === 'magma') {
       const intensity = tile.hp === 2 ? 1 : 0.7;
       return {
-        background: `linear-gradient(135deg, rgba(185,28,28,${intensity}) 0%, rgba(153,27,27,${intensity}) 50%, rgba(127,29,29,${intensity}) 100%)`,
-        boxShadow: `inset 0 0 12px rgba(251,146,60,${intensity}), 0 0 15px rgba(185,28,28,${intensity * 0.8}), 0 0 25px rgba(239,68,68,${intensity * 0.4})`,
-        border: `2px solid rgba(251,146,60,${intensity * 0.6})`,
+        background: `radial-gradient(circle at 30% 30%, rgba(220,38,38,${intensity}) 0%, rgba(185,28,28,${intensity}) 40%, rgba(153,27,27,${intensity}) 70%, rgba(127,29,29,${intensity}) 100%)`,
+        boxShadow: `inset 0 0 20px rgba(251,146,60,${intensity * 0.8}), inset 0 0 30px rgba(234,88,12,${intensity * 0.4}), 0 0 20px rgba(185,28,28,${intensity * 0.9}), 0 0 30px rgba(239,68,68,${intensity * 0.5}), 0 4px 12px rgba(0,0,0,0.4)`,
+        border: `2px solid rgba(251,146,60,${intensity * 0.8})`,
       };
     }
     
@@ -43,9 +47,9 @@ const TileComponent: React.FC<TileComponentProps> = ({ tile, size, isSelected, o
       };
       const baseColor = colorMap[tile.color || 'red'];
       return {
-        background: `radial-gradient(circle at 30% 30%, ${baseColor}, ${baseColor}dd)`,
-        boxShadow: `inset 0 0 8px rgba(255,255,255,0.3), 0 0 6px ${baseColor}80`,
-        border: `2px solid ${baseColor}cc`,
+        background: `radial-gradient(circle at 30% 30%, ${baseColor}f0, ${baseColor}dd 50%, ${baseColor}aa)`,
+        boxShadow: `inset 0 0 10px rgba(255,255,255,0.4), inset 0 -4px 8px rgba(0,0,0,0.2), 0 0 8px ${baseColor}80, 0 2px 6px rgba(0,0,0,0.3)`,
+        border: `2px solid ${baseColor}dd`,
       };
     }
     
@@ -55,15 +59,17 @@ const TileComponent: React.FC<TileComponentProps> = ({ tile, size, isSelected, o
   const getJellyStyle = (): React.CSSProperties | null => {
     if (tile.jellyLayers === 0) return null;
     
-    const opacity = tile.jellyLayers === 2 ? 0.9 : 0.6;
+    const opacity = tile.jellyLayers === 2 ? 0.95 : 0.65;
+    const thickness = tile.jellyLayers === 2 ? '3px' : '2px';
     return {
       position: 'absolute',
       inset: 0,
-      background: `linear-gradient(135deg, rgba(88, 28, 135, ${opacity}) 0%, rgba(139, 69, 207, ${opacity * 0.9}) 50%, rgba(168, 85, 247, ${opacity * 0.7}) 100%)`,
+      background: `radial-gradient(circle at 40% 40%, rgba(168, 85, 247, ${opacity}) 0%, rgba(139, 69, 207, ${opacity * 0.95}) 40%, rgba(88, 28, 135, ${opacity * 0.85}) 100%)`,
       borderRadius: '8px',
-      border: `2px solid rgba(88, 28, 135, ${opacity + 0.5})`,
-      boxShadow: `inset 0 0 12px rgba(88, 28, 135, ${opacity * 0.6}), 0 0 10px rgba(88, 28, 135, ${opacity * 0.4})`,
+      border: `${thickness} solid rgba(168, 85, 247, ${opacity * 0.8})`,
+      boxShadow: `inset 0 0 15px rgba(168, 85, 247, ${opacity * 0.7}), inset 0 0 25px rgba(88, 28, 135, ${opacity * 0.5}), 0 0 12px rgba(88, 28, 135, ${opacity * 0.5})`,
       pointerEvents: 'none',
+      animation: tile.jellyLayers > 0 && tile.isExploding ? 'jelly-pop 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards' : undefined,
     };
   };
 
@@ -73,9 +79,16 @@ const TileComponent: React.FC<TileComponentProps> = ({ tile, size, isSelected, o
     if (tile.special === 'row_bomb') {
       return (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="w-full h-2 bg-gradient-to-r from-transparent via-yellow-300 to-transparent rounded-full shadow-lg animate-pulse" />
-          <div className="absolute w-3 h-3 bg-yellow-400 rounded-full animate-ping shadow-yellow-400/50" />
-          <div className="absolute w-1 h-1 bg-white rounded-full animate-pulse" style={{ animationDelay: '0.5s' }} />
+          <div className="w-full h-3 bg-gradient-to-r from-transparent via-yellow-300 to-transparent rounded-full shadow-lg" 
+               style={{ 
+                 boxShadow: '0 0 15px rgba(251, 191, 36, 0.8), 0 0 25px rgba(251, 191, 36, 0.4)',
+                 animation: 'glow-pulse 1.5s ease-in-out infinite'
+               }} />
+          <div className="absolute w-4 h-4 bg-yellow-400 rounded-full shadow-yellow-400/50" 
+               style={{ 
+                 boxShadow: '0 0 12px rgba(251, 191, 36, 0.8)',
+                 animation: 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+               }} />
         </div>
       );
     }
@@ -83,9 +96,16 @@ const TileComponent: React.FC<TileComponentProps> = ({ tile, size, isSelected, o
     if (tile.special === 'col_bomb') {
       return (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="h-full w-2 bg-gradient-to-b from-transparent via-yellow-300 to-transparent rounded-full shadow-lg animate-pulse" />
-          <div className="absolute w-3 h-3 bg-yellow-400 rounded-full animate-ping shadow-yellow-400/50" />
-          <div className="absolute w-1 h-1 bg-white rounded-full animate-pulse" style={{ animationDelay: '0.5s' }} />
+          <div className="h-full w-3 bg-gradient-to-b from-transparent via-yellow-300 to-transparent rounded-full shadow-lg" 
+               style={{ 
+                 boxShadow: '0 0 15px rgba(251, 191, 36, 0.8), 0 0 25px rgba(251, 191, 36, 0.4)',
+                 animation: 'glow-pulse 1.5s ease-in-out infinite'
+               }} />
+          <div className="absolute w-4 h-4 bg-yellow-400 rounded-full shadow-yellow-400/50" 
+               style={{ 
+                 boxShadow: '0 0 12px rgba(251, 191, 36, 0.8)',
+                 animation: 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+               }} />
         </div>
       );
     }
@@ -93,9 +113,16 @@ const TileComponent: React.FC<TileComponentProps> = ({ tile, size, isSelected, o
     if (tile.special === 'color_bomb') {
       return (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="w-4 h-4 rounded-full bg-gradient-to-r from-red-500 via-yellow-500 via-blue-500 to-purple-500 animate-spin shadow-lg" 
-               style={{ animationDuration: '1.5s' }} />
-          <div className="absolute w-2 h-2 bg-white rounded-full animate-pulse" />
+          <div className="w-5 h-5 rounded-full bg-gradient-to-r from-red-500 via-yellow-500 via-blue-500 to-purple-500" 
+               style={{ 
+                 animation: 'spin 2s linear infinite',
+                 boxShadow: '0 0 15px rgba(251, 191, 36, 0.8), 0 0 25px rgba(139, 92, 246, 0.5)'
+               }} />
+          <div className="absolute w-3 h-3 bg-white rounded-full" 
+               style={{ 
+                 animation: 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                 boxShadow: '0 0 10px rgba(255, 255, 255, 0.8)'
+               }} />
         </div>
       );
     }
@@ -104,49 +131,60 @@ const TileComponent: React.FC<TileComponentProps> = ({ tile, size, isSelected, o
   };
 
   const animationClass = tile.isExploding 
-    ? 'animate-tile-explode' 
+    ? (tile.special === 'row_bomb' ? 'animate-row-blast' : 
+       tile.special === 'col_bomb' ? 'animate-col-blast' :
+       tile.special === 'color_bomb' ? 'animate-shatter' :
+       'animate-tile-explode')
     : tile.isFalling 
     ? 'animate-tile-fall' 
     : tile.isSpawning
     ? 'animate-tile-spawn'
-    : tile.special !== 'none'
-    ? 'animate-float'
     : '';
 
   return (
     <div
-      className={`relative rounded-lg cursor-pointer transition-all duration-200 ${animationClass} group`}
+      className={`relative rounded-lg cursor-pointer select-none ${animationClass}`}
       style={{
         width: size,
         height: size,
+        willChange: tile.isFalling || tile.isSpawning || tile.isExploding ? 'transform, opacity' : 'auto',
         ...getBackgroundStyle(),
-        transform: isSelected ? 'scale(1.15) rotate(5deg)' : 'scale(1)',
+        transform: isSelected ? 'scale(1.1)' : 'scale(1)',
+        transformOrigin: 'center',
+        transition: 'transform 0.05s ease-out',
         zIndex: isSelected ? 10 : 1,
         boxShadow: isSelected 
-          ? '0 0 0 4px #fbbf24, 0 8px 20px rgba(0,0,0,0.4), 0 0 30px rgba(251,191,36,0.3)' 
-          : '0 3px 6px rgba(0,0,0,0.3), 0 0 15px rgba(0,0,0,0.1)',
+          ? '0 0 0 3px #fbbf24, 0 4px 12px rgba(0,0,0,0.3)' 
+          : '0 2px 4px rgba(0,0,0,0.2)',
+        touchAction: 'none',
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none',
       }}
       onClick={onClick}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
     >
       {/* Jelly layer */}
       {tile.jellyLayers > 0 && <div style={getJellyStyle()!} />}
       
-      {/* Gem image with sparkle effect */}
+      {/* Gem image with minimal sparkle effect */}
       {tile.type === 'gem' && tile.color && (
         <>
           <img
             src={GEM_IMAGES[tile.color]}
             alt={tile.color}
-            className="w-full h-full object-cover rounded-lg transition-all duration-200 group-hover:scale-105"
+            className="w-full h-full object-cover rounded-lg"
             draggable={false}
+            style={{ pointerEvents: 'none', userSelect: 'none' }}
           />
-          {/* Sparkle effects */}
-          <div className="absolute inset-0 pointer-events-none">
-            <div className="absolute top-1 right-2 w-1 h-1 bg-white rounded-full animate-ping opacity-70" style={{ animationDelay: '0s', animationDuration: '2s' }} />
-            <div className="absolute top-3 left-1 w-0.5 h-0.5 bg-yellow-300 rounded-full animate-ping opacity-60" style={{ animationDelay: '0.5s', animationDuration: '2.5s' }} />
-            <div className="absolute bottom-2 right-1 w-0.5 h-0.5 bg-white rounded-full animate-ping opacity-50" style={{ animationDelay: '1s', animationDuration: '3s' }} />
-            <div className="absolute bottom-1 left-3 w-1 h-1 bg-yellow-200 rounded-full animate-ping opacity-80" style={{ animationDelay: '1.5s', animationDuration: '2.2s' }} />
-          </div>
+          {/* Minimal sparkle for performance */}
+          {tile.special === 'none' && (
+            <div className="absolute inset-0 pointer-events-none">
+              <div className="absolute top-1 right-2 w-1 h-1 bg-white rounded-full animate-ping opacity-60" style={{ animationDuration: '2.5s' }} />
+            </div>
+          )}
         </>
       )}
       
@@ -168,19 +206,37 @@ const TileComponent: React.FC<TileComponentProps> = ({ tile, size, isSelected, o
         </div>
       )}
       
-      {/* Magma HP indicator */}
+      {/* Magma HP indicator with pulsing effect */}
       {tile.type === 'magma' && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="bg-black/50 rounded-full px-2 py-1 backdrop-blur-sm">
-            <span className="text-white font-bold text-lg drop-shadow-lg">{tile.hp}</span>
-          </div>
-        </div>
+          <div className="bg-gradient-to-br from-black/70 to-black/50 rounded-full px-3 py-1.5 backdrop-blur-sm border-2 border-orange-400/60 shadow-lg">
+            <span className="text-white font-black text-lg drop-shadow-[0_0_8px_rgba(251,146,60,0.8)]\" style={{ 
+              textShadow: '0 0 10px rgba(251,146,60,0.8), 0 0 20px rgba(234,88,12,0.6)' 
+            }}>{tile.hp}</span>
+          </div>\n        </div>
       )}
       
       {/* Special tile indicator */}
       {getSpecialIndicator()}
     </div>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison for better performance
+  return (
+    prevProps.tile.id === nextProps.tile.id &&
+    prevProps.tile.type === nextProps.tile.type &&
+    prevProps.tile.color === nextProps.tile.color &&
+    prevProps.tile.special === nextProps.tile.special &&
+    prevProps.tile.hp === nextProps.tile.hp &&
+    prevProps.tile.jellyLayers === nextProps.tile.jellyLayers &&
+    prevProps.tile.isFalling === nextProps.tile.isFalling &&
+    prevProps.tile.isSpawning === nextProps.tile.isSpawning &&
+    prevProps.tile.isExploding === nextProps.tile.isExploding &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.size === nextProps.size
+  );
+});
+
+TileComponent.displayName = 'TileComponent';
 
 export default TileComponent;

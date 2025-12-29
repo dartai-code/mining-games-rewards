@@ -1,6 +1,7 @@
 import React from 'react';
 import { Coins, TrendingUp, Clock, Pickaxe, Gamepad2, Users, CheckCircle } from 'lucide-react';
 import { useWallet } from '../hooks/useWallet';
+import { BannerAd } from './BannerAd';
 
 const WalletTab: React.FC = () => {
   const { transactions, balance, formatDate } = useWallet();
@@ -102,6 +103,9 @@ const WalletTab: React.FC = () => {
             )}
           </div>
         </div>
+        
+        {/* Banner Ad */}
+        <BannerAd className="mt-4" />
       </div>
     </div>
   );

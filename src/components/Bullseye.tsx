@@ -52,6 +52,16 @@ interface GameState {
   gameEnded: boolean;
 }
 
+interface Booster {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  count: number;
+  active: boolean;
+  duration?: number;
+}
+
 const DARTBOARD_SEGMENTS = [
   { angle: 0, score: 20, color: 'red' },
   { angle: 18, score: 1, color: 'white' },
@@ -104,24 +114,54 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
   const [nextPopupId, setNextPopupId] = useState(0);
   const [nextParticleId, setNextParticleId] = useState(0);
   const [showAdModal, setShowAdModal] = useState(false);
+  const [adType, setAdType] = useState<'extraDarts' | 'levelBonus' | 'continue' | 'booster'>('extraDarts');
+  const [showLevelCompleteAd, setShowLevelCompleteAd] = useState(false);
+  const [selectedBooster, setSelectedBooster] = useState<string>('');
+  const [boosters, setBoosters] = useState<Booster[]>([
+    { id: 'slowRotation', name: 'Slow Motion', icon: '⏱️', description: 'Slows board rotation by 70%', count: 3, active: false, duration: 30 },
+    { id: 'doublePoints', name: 'Double Points', icon: '💎', description: 'Next dart scores 2x points', count: 3, active: false },
+    { id: 'freezeBoard', name: 'Freeze', icon: '❄️', description: 'Stops board rotation for 20s', count: 3, active: false, duration: 20 },
+    { id: 'precisionAim', name: 'Precision', icon: '🎯', description: 'Larger bullseye zone', count: 3, active: false, duration: 30 },
+  ]);
+  const [activeBoosterTimers, setActiveBoosterTimers] = useState<Record<string, number>>({});
+  const [sessionScore, setSessionScore] = useState(0); // Track cumulative score for session
+  const [sessionStartLevel, setSessionStartLevel] = useState(1); // Track starting level
+  const [extraDartsCount, setExtraDartsCount] = useState(0); // Track how many times player used extra darts ads
+  const MAX_EXTRA_DARTS_ADS = 2; // Maximum 2 extra darts ads per level
 
   const endGame = () => {
+    // Calculate final session rewards
+    const totalSessionScore = sessionScore + gameState.score;
+    const dartPoints = Math.floor(totalSessionScore / 10);
+    const levelsCompleted = gameState.level - sessionStartLevel;
+
     setGameState(prev => {
       const targetScore = prev.level * 50;
       const levelCompleted = prev.score >= targetScore;
       let newLevel = prev.level;
 
-      // Save level progress if completed
-      if (levelCompleted) {
-        if (prev.level < 100) {
-          newLevel = prev.level + 1;
-          localStorage.setItem('bullseyeLevel', newLevel.toString());
-        }
-        // If level >= 100, stay at 100 (already mastered)
+      // Save level progress if completed at max level
+      if (levelCompleted && prev.level >= 500) {
+        localStorage.setItem('bullseyeLevel', '500');
       }
 
       return { ...prev, gameEnded: true, level: newLevel };
     });
+
+    // Award DART points for entire session
+    if (dartPoints > 0) {
+      const description = levelsCompleted > 0 
+        ? `Bullseye: Levels ${sessionStartLevel}-${gameState.level} (${totalSessionScore} points)`
+        : `Bullseye level ${gameState.level}: ${totalSessionScore} points`;
+      
+      addTransaction('Bullseye', dartPoints, description);
+
+      // Add to leaderboard with cumulative score
+      const userProfile = leaderboardService.getUserProfile();
+      if (userProfile) {
+        leaderboardService.addScore(userProfile.username, userProfile.country, dartPoints, 'bullseye');
+      }
+    }
 
     // Get the final game state for calculations
     const finalTargetScore = gameState.level * 50;
@@ -135,28 +175,16 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
     else if (percentage >= 60) stars = 2;
     else if (percentage >= 40) stars = 1;
 
-    // Award DART points
-    const dartPoints = Math.floor(gameState.score / 10);
-    if (dartPoints > 0) {
-      addTransaction('Bullseye', dartPoints, `Bullseye level ${gameState.level}: ${gameState.score} points`);
-
-      // Add to leaderboard
-      const userProfile = leaderboardService.getUserProfile();
-      if (userProfile) {
-        leaderboardService.addScore(userProfile.username, userProfile.country, dartPoints, 'bullseye');
-      }
-    }
-
-    // Update high score
+    // Update high score with total session score
     const savedGameState = JSON.parse(localStorage.getItem('gameState') || '{}');
-    if (gameState.score > (savedGameState.highScores?.bullseye || 0)) {
+    if (totalSessionScore > (savedGameState.highScores?.bullseye || 0)) {
       savedGameState.highScores = savedGameState.highScores || { match3: 0, bullseye: 0 };
-      savedGameState.highScores.bullseye = gameState.score;
+      savedGameState.highScores.bullseye = totalSessionScore;
       localStorage.setItem('gameState', JSON.stringify(savedGameState));
     }
 
     if (onGameComplete) {
-      onGameComplete(gameState.score, stars);
+      onGameComplete(totalSessionScore, stars);
     }
   };
 
@@ -223,29 +251,67 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
     return () => clearInterval(interval);
   }, [scorePopups.length]);
 
-  // Board rotation animation
+  // Board rotation animation with smooth acceleration
   useEffect(() => {
     if (!gameState.gameStarted || gameState.gameEnded) return;
 
+    let animationFrameId: number;
+    let lastTime = Date.now();
+    let currentSpeed = 0;
+    
     const animateRotation = () => {
+      const currentTime = Date.now();
+      const deltaTime = (currentTime - lastTime) / 16; // Normalize to 60fps
+      lastTime = currentTime;
+      
+      // Check for freeze booster
+      const freezeBooster = boosters.find(b => b.id === 'freezeBoard' && b.active);
+      if (freezeBooster) {
+        animationFrameId = requestAnimationFrame(animateRotation);
+        return;
+      }
+
+      // Check for slow rotation booster
+      const slowBooster = boosters.find(b => b.id === 'slowRotation' && b.active);
+      const baseSpeed = 0.8 + gameState.level * 0.3;
+      const targetSpeed = slowBooster ? baseSpeed * 0.3 : baseSpeed;
+      
+      // Smooth acceleration/deceleration
+      const acceleration = 0.1;
+      if (Math.abs(targetSpeed - currentSpeed) > 0.01) {
+        currentSpeed += (targetSpeed - currentSpeed) * acceleration;
+      } else {
+        currentSpeed = targetSpeed;
+      }
+      
+      // Add subtle oscillation for more dynamic movement
+      const oscillation = Math.sin(Date.now() * 0.002) * 0.2;
+      const finalSpeed = (currentSpeed + oscillation) * deltaTime;
+
       setGameState(prev => ({
         ...prev,
-        boardRotation: (prev.boardRotation + (1 + prev.level * 0.5)) % 360 // Faster rotation with level
+        boardRotation: (prev.boardRotation + finalSpeed) % 360
       }));
+      
+      animationFrameId = requestAnimationFrame(animateRotation);
     };
 
-    const interval = setInterval(animateRotation, 16); // ~60fps
-    return () => clearInterval(interval);
-  }, [gameState.gameStarted, gameState.gameEnded, gameState.level]);
+    animationFrameId = requestAnimationFrame(animateRotation);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [gameState.gameStarted, gameState.gameEnded, gameState.level, boosters]);
 
   const calculateScore = (x: number, y: number): { score: number; ring: string } => {
     const centerX = 200;
     const centerY = 200;
     const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
 
+    // Check for precision booster (increases bullseye zone)
+    const precisionBooster = boosters.find(b => b.id === 'precisionAim' && b.active);
+    const bullseyeMultiplier = precisionBooster ? 1.5 : 1;
+
     // Bullseye
-    if (distance <= 12.7) return { score: 50, ring: 'bullseye' };
-    if (distance <= 31.8) return { score: 25, ring: 'outer-bull' };
+    if (distance <= 12.7 * bullseyeMultiplier) return { score: 50, ring: 'bullseye' };
+    if (distance <= 31.8 * bullseyeMultiplier) return { score: 25, ring: 'outer-bull' };
 
     // Rings
     let ring = 'single';
@@ -299,14 +365,28 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
       isThrowing: true
     }));
 
-    // Animate dart flight
+    // Animate dart flight with easing
     let progress = 0;
     const animateFlight = () => {
-      progress += 0.05; // Speed of flight
+      progress += 0.04; // Slightly slower for smoother animation
+      
+      // Easing function for smooth deceleration (ease-out)
+      const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+      const easedProgress = easeOutCubic(progress);
 
       if (progress >= 1) {
         // Dart has landed
-        const { score, ring } = calculateScore(targetX, targetY);
+        let { score, ring } = calculateScore(targetX, targetY);
+
+        // Apply double points booster
+        const doublePointsBooster = boosters.find(b => b.id === 'doublePoints' && b.active);
+        if (doublePointsBooster && score > 0) {
+          score *= 2;
+          // Deactivate double points after use (one-time use)
+          setBoosters(current =>
+            current.map(b => b.id === 'doublePoints' ? { ...b, active: false } : b)
+          );
+        }
 
         // Create score popup
         const popup: ScorePopup = {
@@ -337,9 +417,48 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
           let gameEnded = false;
 
           if (newScore >= targetScore) {
-            gameEnded = true; // Level completed - end game immediately
+            // Level completed - advance to next level if not at max
+            if (prev.level < 500) {
+              const nextLevel = prev.level + 1;
+              localStorage.setItem('bullseyeLevel', nextLevel.toString());
+              
+              // Track session score (don't award immediately)
+              setSessionScore(current => current + newScore);
+              
+              // Show ad every 10 levels for bonus rewards
+              if (nextLevel % 10 === 1 && nextLevel > 1) {
+                setAdType('levelBonus');
+                setShowLevelCompleteAd(true);
+              }
+              
+              // Advance to next level - reset for new level
+              setTimeout(() => {
+                setGameState(current => ({
+                  ...current,
+                  score: 0,
+                  darts: [],
+                  currentDart: 0,
+                  level: nextLevel,
+                  isThrowing: false,
+                  gameEnded: false,
+                }));
+                setTimeLeft(60);
+              }, showLevelCompleteAd ? 0 : 1500); // No delay if showing ad
+              
+              return {
+                ...prev,
+                darts: newDarts,
+                score: newScore,
+                currentDart: newCurrentDart,
+                isThrowing: false,
+                gameEnded: false, // Don't end, will advance
+              };
+            } else {
+              // Max level reached - end game
+              gameEnded = true;
+            }
           } else if (newCurrentDart >= 3) {
-            gameEnded = true; // All darts thrown
+            gameEnded = true; // All darts thrown without reaching target
           }
 
           return {
@@ -352,16 +471,24 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
           };
         });
       } else {
-        // Update flying dart position
+        // Update flying dart position with arc trajectory
+        const dx = targetX - startX;
+        const dy = targetY - startY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        // Add arc to the flight (parabolic curve)
+        const arcHeight = distance * 0.15; // Arc height proportional to distance
+        const arcOffset = Math.sin(easedProgress * Math.PI) * arcHeight;
+        
         setGameState(prev => ({
           ...prev,
           darts: prev.darts.map(dart =>
             dart.isFlying
               ? {
                   ...dart,
-                  flyProgress: progress,
-                  x: startX + (targetX - startX) * progress,
-                  y: startY + (targetY - startY) * progress
+                  flyProgress: easedProgress,
+                  x: startX + dx * easedProgress,
+                  y: startY + dy * easedProgress - arcOffset
                 }
               : dart
           )
@@ -395,6 +522,8 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
     const savedLevel = localStorage.getItem('bullseyeLevel');
     const currentLevel = savedLevel ? parseInt(savedLevel, 10) : 1;
 
+    setSessionScore(0);
+    setSessionStartLevel(currentLevel);
     setGameState(prev => ({
       ...prev,
       score: 0,
@@ -416,6 +545,8 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
     const savedLevel = localStorage.getItem('bullseyeLevel');
     const currentLevel = savedLevel ? parseInt(savedLevel, 10) : 1;
 
+    setSessionScore(0);
+    setSessionStartLevel(currentLevel);
     setGameState({
       score: 0,
       darts: [],
@@ -428,14 +559,57 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
     });
     setTimeLeft(60);
     setShowInstructions(true);
+    setExtraDartsCount(0); // Reset extra darts counter
   };
 
   const handleAdRewardGranted = () => {
-    // Give 3 extra darts by resetting the dart counter
-    setGameState(prev => ({
-      ...prev,
-      currentDart: 0, // Reset to 0 so player can throw 3 more darts
-    }));
+    if (adType === 'extraDarts') {
+      // Give 3 extra darts by resetting the dart counter
+      setGameState(prev => ({
+        ...prev,
+        currentDart: 0, // Reset to 0 so player can throw 3 more darts
+      }));
+      setExtraDartsCount(prev => prev + 1); // Increment extra darts counter
+    } else if (adType === 'levelBonus') {
+      // Award bonus DART points for watching ad
+      const bonusPoints = gameState.level * 2; // 2 DART per level
+      addTransaction('Bullseye Ad Bonus', bonusPoints, `Level ${gameState.level} completion bonus`);
+      setShowLevelCompleteAd(false);
+    } else if (adType === 'continue') {
+      // Continue playing with 3 darts and time reset
+      setGameState(prev => ({
+        ...prev,
+        currentDart: 0,
+        gameEnded: false,
+      }));
+      setTimeLeft(60);
+    } else if (adType === 'booster') {
+      // Grant booster after watching ad
+      setBoosters(current =>
+        current.map(b => b.id === selectedBooster ? { ...b, count: b.count + 1 } : b)
+      );
+    }
+  };
+
+  const activateBooster = (boosterId: string) => {
+    const booster = boosters.find(b => b.id === boosterId);
+    if (!booster || booster.count <= 0 || booster.active) return;
+
+    // Activate booster
+    setBoosters(current =>
+      current.map(b => b.id === boosterId ? { ...b, count: b.count - 1, active: true } : b)
+    );
+
+    // Set timer for timed boosters
+    if (booster.duration) {
+      setActiveBoosterTimers(prev => ({ ...prev, [boosterId]: booster.duration || 0 }));
+    }
+  };
+
+  const requestBooster = (boosterId: string) => {
+    setSelectedBooster(boosterId);
+    setAdType('booster');
+    setShowAdModal(true);
   };
 
   const drawDartboard = (ctx: CanvasRenderingContext2D) => {
@@ -444,9 +618,20 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
     ctx.rotate((gameState.boardRotation * Math.PI) / 180);
     ctx.translate(-200, -200);
 
-    // Add glow effect
-    ctx.shadowColor = '#4ADE80';
-    ctx.shadowBlur = 10;
+    // Add enhanced glow effect for active boosters
+    const freezeActive = boosters.find(b => b.id === 'freezeBoard' && b.active);
+    const precisionActive = boosters.find(b => b.id === 'precisionAim' && b.active);
+    
+    if (freezeActive) {
+      ctx.shadowColor = '#60A5FA';
+      ctx.shadowBlur = 20;
+    } else if (precisionActive) {
+      ctx.shadowColor = '#FFD700';
+      ctx.shadowBlur = 15;
+    } else {
+      ctx.shadowColor = '#4ADE80';
+      ctx.shadowBlur = 10;
+    }
 
     // Draw segments with better colors
     DARTBOARD_SEGMENTS.forEach((segment, index) => {
@@ -472,28 +657,37 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
 
     ctx.shadowBlur = 0; // Reset shadow
 
-    // Draw rings with better styling
+    // Draw rings with enhanced styling and glow effects
     const rings = [
-      { radius: 190, color: '#000', width: 2 },
-      { radius: 170, color: '#EF4444', width: 6 }, // Triple - red
-      { radius: 162, color: '#000', width: 2 },
-      { radius: 127, color: '#3B82F6', width: 6 }, // Double - blue
-      { radius: 119, color: '#000', width: 2 },
-      { radius: 31.8, color: '#10B981', width: 4 }, // Outer bull - green
-      { radius: 12.7, color: '#F59E0B', width: 4 }, // Bullseye - gold
+      { radius: 190, color: '#000', width: 2, glow: false },
+      { radius: 170, color: '#EF4444', width: 6, glow: true, glowColor: '#FCA5A5' }, // Triple - red
+      { radius: 162, color: '#000', width: 2, glow: false },
+      { radius: 127, color: '#3B82F6', width: 6, glow: true, glowColor: '#93C5FD' }, // Double - blue
+      { radius: 119, color: '#000', width: 2, glow: false },
+      { radius: 31.8, color: '#10B981', width: 4, glow: true, glowColor: '#6EE7B7' }, // Outer bull - green
+      { radius: 12.7, color: '#F59E0B', width: 4, glow: true, glowColor: '#FCD34D' }, // Bullseye - gold
     ];
 
     rings.forEach(ring => {
+      if (ring.glow) {
+        ctx.save();
+        ctx.shadowColor = ring.glowColor || ring.color;
+        ctx.shadowBlur = 8;
+      }
       ctx.beginPath();
       ctx.arc(200, 200, ring.radius, 0, 2 * Math.PI);
       ctx.strokeStyle = ring.color;
       ctx.lineWidth = ring.width;
       ctx.stroke();
+      if (ring.glow) {
+        ctx.restore();
+      }
     });
 
     // Draw numbers
-    ctx.fillStyle = '#000';
-    ctx.font = 'bold 16px Arial';
+    const doubleActive = boosters.find(b => b.id === 'doublePoints' && b.active);
+    ctx.fillStyle = doubleActive ? '#FFD700' : '#000';
+    ctx.font = doubleActive ? 'bold 18px Arial' : 'bold 16px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
@@ -503,6 +697,11 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
       const x = 200 + Math.cos(angle) * radius;
       const y = 200 + Math.sin(angle) * radius;
 
+      if (doubleActive) {
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 3;
+        ctx.strokeText(segment.score.toString(), x, y);
+      }
       ctx.fillText(segment.score.toString(), x, y);
     });
 
@@ -512,37 +711,87 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
   const drawDarts = (ctx: CanvasRenderingContext2D) => {
     gameState.darts.forEach((dart, index) => {
       if (dart.isFlying) {
-        // Draw flying dart with trail
+        // Calculate dart angle for rotation
+        const dx = dart.x - (dart.startX || 200);
+        const dy = dart.y - (dart.startY || 380);
+        const angle = Math.atan2(dy, dx);
+        
+        // Draw enhanced trail with gradient
         ctx.save();
-        ctx.globalAlpha = 0.7;
-
-        // Draw trail
-        const trailLength = 10;
+        const trailLength = 12;
         for (let i = 0; i < trailLength; i++) {
-          const trailProgress = (dart.flyProgress || 0) - (i / trailLength) * 0.3;
+          const trailProgress = (dart.flyProgress || 0) - (i / trailLength) * 0.25;
           if (trailProgress > 0) {
-            const trailX = (dart.startX || 200) + ((dart.x - (dart.startX || 200)) * trailProgress);
-            const trailY = (dart.startY || 380) + ((dart.y - (dart.startY || 380)) * trailProgress);
-            ctx.globalAlpha = 0.7 * (1 - i / trailLength);
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const arcHeight = distance * 0.15;
+            const arcOffset = Math.sin(trailProgress * Math.PI) * arcHeight;
+            
+            const trailX = (dart.startX || 200) + dx * trailProgress;
+            const trailY = (dart.startY || 380) + dy * trailProgress - arcOffset;
+            const alpha = 0.8 * (1 - i / trailLength);
+            const size = 3 * (1 - i / trailLength);
+            
+            ctx.globalAlpha = alpha;
             ctx.beginPath();
-            ctx.arc(trailX, trailY, 2, 0, 2 * Math.PI);
-            ctx.fillStyle = '#ff0000';
+            ctx.arc(trailX, trailY, size, 0, 2 * Math.PI);
+            const gradient = ctx.createRadialGradient(trailX, trailY, 0, trailX, trailY, size);
+            gradient.addColorStop(0, '#ff6b6b');
+            gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
+            ctx.fillStyle = gradient;
             ctx.fill();
           }
         }
-
-        ctx.globalAlpha = 1;
         ctx.restore();
+        
+        // Draw flying dart with rotation and shadow
+        ctx.save();
+        ctx.translate(dart.x, dart.y);
+        ctx.rotate(angle + Math.PI / 4);
+        
+        // Shadow
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetX = 2;
+        ctx.shadowOffsetY = 2;
+        
+        // Dart body (elongated)
+        ctx.beginPath();
+        ctx.moveTo(-8, 0);
+        ctx.lineTo(4, -2);
+        ctx.lineTo(4, 2);
+        ctx.closePath();
+        ctx.fillStyle = '#c92a2a';
+        ctx.fill();
+        
+        // Dart tip
+        ctx.beginPath();
+        ctx.moveTo(4, 0);
+        ctx.lineTo(8, 0);
+        ctx.strokeStyle = '#862e9c';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        ctx.restore();
+      } else {
+        // Draw landed dart
+        ctx.save();
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+        ctx.shadowBlur = 4;
+        ctx.shadowOffsetX = 1;
+        ctx.shadowOffsetY = 1;
       }
 
-      // Draw dart
-      ctx.beginPath();
-      ctx.arc(dart.x, dart.y, 3, 0, 2 * Math.PI);
-      ctx.fillStyle = '#ff0000';
-      ctx.fill();
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      if (!dart.isFlying) {
+        // Draw dart marker
+        ctx.beginPath();
+        ctx.arc(dart.x, dart.y, 4, 0, 2 * Math.PI);
+        ctx.fillStyle = '#ff0000';
+        ctx.fill();
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+      }
 
       // Draw score text for landed darts
       if (!dart.isFlying && dart.score > 0) {
@@ -643,7 +892,7 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
             <div className="bg-gray-800 rounded-lg p-4">
               <h3 className="font-semibold mb-2">🎯 Level Progression:</h3>
               <ul className="text-sm text-gray-300 space-y-1">
-                <li><strong>Level 1-100:</strong> Reach target score to advance</li>
+                <li><strong>Level 1-500:</strong> Reach target score to advance</li>
                 <li><strong>Target Score:</strong> Level × 50 points</li>
                 <li><strong>Difficulty:</strong> Board spins faster each level</li>
               </ul>
@@ -688,22 +937,82 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
     <div className="min-h-screen bg-gray-950 text-white p-4">
       <div className="max-w-md mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <button
-            onClick={() => navigate('/games')}
-            className="flex items-center gap-2 text-gray-400 hover:text-white"
-          >
-            <ArrowLeft size={20} /> Back
-          </button>
-          <div className="text-center">
-            <div className="text-2xl font-bold">{gameState.score}</div>
-            <div className="text-sm text-gray-400">Target: {gameState.level * 50}</div>
-          </div>
-          <div className="text-right">
-            <div className="text-lg font-semibold">{timeLeft}s</div>
-            <div className="text-sm text-gray-400">Level {gameState.level}</div>
+        <div className="bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg p-4 mb-4 shadow-lg">
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => navigate('/games')}
+              className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
+            >
+              <ArrowLeft size={20} /> Back
+            </button>
+            <div className="text-center">
+              <div className="text-3xl font-bold bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">
+                {gameState.score}
+              </div>
+              <div className="text-xs text-gray-400">Target: {gameState.level * 50}</div>
+            </div>
+            <div className="text-right">
+              <div className={`text-xl font-semibold ${
+                timeLeft <= 10 ? 'text-red-400 animate-pulse' : 'text-green-400'
+              }`}>
+                {timeLeft}s
+              </div>
+              <div className="text-xs text-gray-400">Level {gameState.level}</div>
+            </div>
           </div>
         </div>
+
+        {/* Boosters Panel */}
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          {boosters.map(booster => (
+            <div key={booster.id} className="relative">
+              <button
+                onClick={() => booster.count > 0 ? activateBooster(booster.id) : requestBooster(booster.id)}
+                disabled={booster.active}
+                className={`w-full aspect-square rounded-lg flex flex-col items-center justify-center text-xs font-semibold transition-all ${
+                  booster.active
+                    ? 'bg-green-600 ring-2 ring-green-400 animate-pulse'
+                    : booster.count > 0
+                    ? 'bg-blue-600 hover:bg-blue-700'
+                    : 'bg-gray-700 hover:bg-gray-600'
+                }`}
+              >
+                <span className="text-2xl mb-1">{booster.icon}</span>
+                <span className="text-[10px] leading-tight">{booster.name}</span>
+                {booster.count > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-yellow-500 text-black rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">
+                    {booster.count}
+                  </span>
+                )}
+                {!booster.count && !booster.active && (
+                  <span className="absolute -bottom-1 -right-1 text-xs">🎥</span>
+                )}
+              </button>
+              {booster.active && activeBoosterTimers[booster.id] && (
+                <div className="absolute -bottom-5 left-0 right-0 text-center text-xs text-green-400 font-semibold">
+                  {activeBoosterTimers[booster.id]}s
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Active Boosters Banner */}
+        {boosters.some(b => b.active) && (
+          <div className="mb-3 p-2 bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg">
+            <div className="flex flex-wrap justify-center gap-2">
+              {boosters.filter(b => b.active).map(booster => (
+                <div key={booster.id} className="flex items-center gap-1 bg-black/30 px-2 py-1 rounded text-xs font-semibold">
+                  <span>{booster.icon}</span>
+                  <span>{booster.name}</span>
+                  {activeBoosterTimers[booster.id] && (
+                    <span className="text-yellow-300">{activeBoosterTimers[booster.id]}s</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Dartboard */}
         <div className="flex justify-center mb-4">
@@ -718,12 +1027,14 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
         </div>
 
         {/* Dart Counter */}
-        <div className="flex justify-center gap-2 mb-4">
+        <div className="flex justify-center gap-3 mb-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <div
               key={i}
-              className={`w-3 h-3 rounded-full ${
-                i < gameState.currentDart ? 'bg-red-500' : 'bg-gray-600'
+              className={`w-4 h-4 rounded-full transition-all duration-300 ${
+                i < gameState.currentDart
+                  ? 'bg-red-500 shadow-lg shadow-red-500/50'
+                  : 'bg-gray-600 hover:bg-gray-500'
               }`}
             />
           ))}
@@ -736,7 +1047,7 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
               {(() => {
                 const targetScore = gameState.level * 50;
                 const levelCompleted = gameState.score >= targetScore;
-                if (levelCompleted && gameState.level >= 100) {
+                if (levelCompleted && gameState.level >= 500) {
                   return "🎉 Game Mastered!";
                 } else if (levelCompleted) {
                   return "Level Complete!";
@@ -748,16 +1059,21 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
             <div className="text-lg">
               Final Score: <span className="text-yellow-400 animate-pulse">{gameState.score}</span>
             </div>
+            <div className="text-sm text-gray-400 mt-1">
+              Session Total: <span className="text-green-400">{sessionScore + gameState.score} points</span>
+            </div>
             <div className="text-sm text-gray-400">
               {(() => {
                 const targetScore = gameState.level * 50;
                 const levelCompleted = gameState.score >= targetScore;
-                if (levelCompleted && gameState.level >= 100) {
-                  return `Mastered all 100 levels! Earned ${Math.floor(gameState.score / 10)} DART`;
+                const totalSessionScore = sessionScore + gameState.score;
+                const totalDart = Math.floor(totalSessionScore / 10);
+                if (levelCompleted && gameState.level >= 500) {
+                  return `Mastered all 500 levels! Earned ${totalDart} DART`;
                 } else if (levelCompleted) {
-                  return `Advanced to Level ${gameState.level + 1}! Earned ${Math.floor(gameState.score / 10)} DART`;
+                  return `Advanced to Level ${gameState.level + 1}! Earned ${totalDart} DART`;
                 } else {
-                  return `Target: ${targetScore} | Earned ${Math.floor(gameState.score / 10)} DART`;
+                  return `Target: ${targetScore} | Earned ${totalDart} DART`;
                 }
               })()}
             </div>
@@ -772,12 +1088,26 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
           >
             <RotateCcw size={20} /> Reset
           </button>
-          {gameState.gameStarted && !gameState.gameEnded && gameState.currentDart >= 3 && (
+          {gameState.gameStarted && !gameState.gameEnded && gameState.currentDart >= 3 && extraDartsCount < MAX_EXTRA_DARTS_ADS && (
             <button
-              onClick={() => setShowAdModal(true)}
+              onClick={() => {
+                setAdType('extraDarts');
+                setShowAdModal(true);
+              }}
               className="flex-1 bg-purple-600 hover:bg-purple-700 py-3 rounded-lg font-semibold flex items-center justify-center gap-2"
             >
-              🎥 +3 Darts
+              🎥 +3 Darts ({MAX_EXTRA_DARTS_ADS - extraDartsCount} left)
+            </button>
+          )}
+          {gameState.gameEnded && gameState.score < gameState.level * 50 && (
+            <button
+              onClick={() => {
+                setAdType('continue');
+                setShowAdModal(true);
+              }}
+              className="flex-1 bg-yellow-600 hover:bg-yellow-700 py-3 rounded-lg font-semibold flex items-center justify-center gap-2"
+            >
+              🎥 Continue
             </button>
           )}
           {gameState.gameEnded && (
@@ -795,8 +1125,44 @@ const Bullseye: React.FC<BullseyeProps> = ({ onGameComplete }) => {
         open={showAdModal}
         onClose={() => setShowAdModal(false)}
         onRewardGranted={handleAdRewardGranted}
-        title="Extra Darts"
-        description="Watch a short video ad to get 3 extra darts and continue playing!"
+        title={
+          adType === 'extraDarts' ? 'Extra Darts' :
+          adType === 'continue' ? 'Continue Playing' :
+          adType === 'booster' ? `Get ${boosters.find(b => b.id === selectedBooster)?.name}` :
+          'Extra Darts'
+        }
+        description={
+          adType === 'extraDarts'
+            ? 'Watch a short video ad to get 3 extra darts and continue playing!'
+            : adType === 'continue'
+            ? 'Watch a short video ad to continue playing with 3 darts and full time!'
+            : adType === 'booster'
+            ? `Watch an ad to get 1 ${boosters.find(b => b.id === selectedBooster)?.name} booster!`
+            : 'Watch a short video ad to get 3 extra darts and continue playing!'
+        }
+      />
+
+      <RewardedAdModal
+        open={showLevelCompleteAd}
+        onClose={() => {
+          setShowLevelCompleteAd(false);
+          // Advance to next level after closing ad
+          setTimeout(() => {
+            setGameState(current => ({
+              ...current,
+              score: 0,
+              darts: [],
+              currentDart: 0,
+              level: current.level + 1,
+              isThrowing: false,
+              gameEnded: false,
+            }));
+            setTimeLeft(60);
+          }, 500);
+        }}
+        onRewardGranted={handleAdRewardGranted}
+        title="Level Milestone!"
+        description={`🎉 You've reached level ${gameState.level}! Watch an ad to earn ${gameState.level * 2} bonus DART points!`}
       />
     </div>
   );

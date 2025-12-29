@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { Medal } from 'lucide-react';
 import { leaderboardService } from '../services/leaderboardService';
+import { BannerAd } from './BannerAd';
 
 /**
  * LeaderboardTab (robust)
@@ -120,6 +121,9 @@ const LeaderboardTab: React.FC = () => {
           ))
         )}
       </div>
+      
+      {/* Banner Ad */}
+      <BannerAd className="mt-4" />
     </div>
   );
 };

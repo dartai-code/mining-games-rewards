@@ -12,9 +12,9 @@ function getDefaultPlayerData(): PlayerData {
     completedLevels: [],
     stars: {},
     boosters: {
-      fire_bomb: 3,
-      line_bomb: 3,
-      color_bomb: 2,
+      fire_bomb: 5,
+      line_bomb: 5,
+      color_bomb: 5,
     },
     totalScore: 0,
     dailyScore: 0,
@@ -99,12 +99,15 @@ export function completeLevel(level: number, stars: number, score: number): Play
   data.weeklyScore += score;
   data.monthlyScore += score;
   
-  // Random chance for booster reward
-  if (Math.random() < 0.3) {
-    const boosterTypes: BoosterType[] = ['fire_bomb', 'line_bomb', 'color_bomb'];
-    const randomBooster = boosterTypes[Math.floor(Math.random() * boosterTypes.length)];
-    data.boosters[randomBooster]++;
-  }
+  // Always give booster reward on level complete
+  const boosterTypes: BoosterType[] = ['fire_bomb', 'line_bomb', 'color_bomb'];
+  const randomBooster = boosterTypes[Math.floor(Math.random() * boosterTypes.length)];
+  data.boosters[randomBooster]++;
+  
+  // Ensure minimum 1 of each booster type
+  if (data.boosters.fire_bomb < 1) data.boosters.fire_bomb = 1;
+  if (data.boosters.line_bomb < 1) data.boosters.line_bomb = 1;
+  if (data.boosters.color_bomb < 1) data.boosters.color_bomb = 1;
   
   savePlayerData(data);
   updateLeaderboard(data);

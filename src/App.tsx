@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from 'sonner';
+import { AuthGuard } from '@/components/AuthGuard';
 import Index from '@/pages/Index';
 import AppHome from '@/pages/AppHome';
 import Match3Page from '@/pages/Match3Page';
@@ -14,16 +15,18 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="dark" attribute="class">
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/home" element={<AppHome />} />
-            <Route path="/match3" element={<Match3Page />} />
-            <Route path="/dart" element={<Bullseye />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-          <Toaster />
-        </BrowserRouter>
+        <AuthGuard>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="/home" element={<AppHome />} />
+              <Route path="/match3" element={<Match3Page />} />
+              <Route path="/dart" element={<Bullseye />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+            <Toaster />
+          </BrowserRouter>
+        </AuthGuard>
       </ThemeProvider>
     </QueryClientProvider>
   );

@@ -37,7 +37,7 @@ const TasksTab: React.FC = () => {
         id: 'telegram',
         title: 'Join Telegram',
         description: 'Join our community chat',
-        reward: 10,
+        reward: 50,
         icon: '💬',
         url: 'https://t.me/+PZIPvIsWyPw2YjRl',
         completed: completedTasks.includes('telegram'),
@@ -46,7 +46,7 @@ const TasksTab: React.FC = () => {
         id: 'discord',
         title: 'Join Discord',
         description: 'Join our Discord server',
-        reward: 10,
+        reward: 50,
         icon: '🎮',
         url: 'https://discord.gg/kkh4DZup',
         completed: completedTasks.includes('discord'),
@@ -56,7 +56,7 @@ const TasksTab: React.FC = () => {
         id: 'share',
         title: 'Share App',
         description: 'Share with friends',
-        reward: 30,
+        reward: 50,
         icon: '📱',
         url: '',
         completed: completedTasks.includes('share'),
@@ -220,7 +220,7 @@ const TasksTab: React.FC = () => {
                 className="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2"
               >
                 <Zap size={16} />
-                <span>Watch Ad for +5 Boost</span>
+                <span>Watch Ad for Double Reward (2x)</span>
               </button>
             </div>
           </div>
@@ -278,13 +278,13 @@ const TasksTab: React.FC = () => {
         onClose={() => setShowAdModal(false)}
         onRewardGranted={() => {
           if (selectedTask) {
-            completeTask(selectedTask.reward + 5);
+            completeTask(selectedTask.reward * 2);
           }
         }}
-        title="Boost Your Reward"
+        title="Double Your Reward"
         description={
-          'Watch an ad to boost your reward to ' +
-          ((selectedTask?.reward || 0) + 5) +
+          'Watch an ad to double your reward to ' +
+          ((selectedTask?.reward || 0) * 2) +
           ' DART'
         }
       />

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import HomeTab from './HomeTab';
 import GamesTab from './GamesTab';
+import ReferralsTab from './ReferralsTab';
 import TasksTab from './TasksTab';
 import WalletTab from './WalletTab';
 import LeaderboardTab from './LeaderboardTab';
@@ -43,6 +44,7 @@ const AppLayout: React.FC = () => {
     switch (activeTab) {
       case 'home': return <HomeTab />;
       case 'games': return <GamesTab />;
+      case 'referrals': return <ReferralsTab />;
       case 'tasks': return <TasksTab />;
       case 'wallet': return <WalletTab />;
       case 'leaderboard': return <LeaderboardTab />;

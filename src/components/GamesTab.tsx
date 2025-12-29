@@ -4,6 +4,7 @@ import { useWallet } from "../hooks/useWallet";
 import { leaderboardService } from "../services/leaderboardService";
 import { useNavigate } from "react-router-dom";
 import { RewardedAdModal } from "./RewardedAdModal";
+import { BannerAd } from "./BannerAd";
 
 const MAX_LIVES = 5;
 const LIFE_REFILL_MS = 10 * 60 * 1000; // 10 minutes
@@ -14,9 +15,7 @@ interface HighScores {
 }
 
 interface GameState {
-  lives: number;
   highScores: HighScores;
-  lastLifeRefill: number;
 }
 
 const GamesTab: React.FC = () => {
@@ -30,6 +29,13 @@ const GamesTab: React.FC = () => {
   const [currentLevel, setCurrentLevel] = useState(() => {
     const saved = localStorage.getItem('currentLevel');
     return saved ? parseInt(saved, 10) : 1;
+  });
+
+  // Get lives from Match-3's lives system
+  const [currentLives, setCurrentLives] = useState<number>(() => {
+    const stored = localStorage.getItem('match3_lives');
+    const lives = stored ? parseInt(stored, 10) : MAX_LIVES;
+    return Math.min(MAX_LIVES, Math.max(0, isNaN(lives) ? MAX_LIVES : lives));
   });
 
   // Sync current level with localStorage changes
@@ -61,15 +67,11 @@ const GamesTab: React.FC = () => {
     if (saved) {
       const parsed = JSON.parse(saved);
       return {
-        lives: parsed.lives ?? MAX_LIVES,
         highScores: parsed.highScores ?? { match3: 0, bullseye: 0 },
-        lastLifeRefill: parsed.lastLifeRefill ?? Date.now(),
       };
     }
     return {
-      lives: MAX_LIVES,
       highScores: { match3: 0, bullseye: 0 },
-      lastLifeRefill: Date.now(),
     };
   });
 
@@ -77,28 +79,20 @@ const GamesTab: React.FC = () => {
     localStorage.setItem("gameState", JSON.stringify(gameState));
   }, [gameState]);
 
+  // Sync lives from Match-3 lives system
   useEffect(() => {
-    const id = setInterval(() => {
-      setGameState((prev) => {
-        if (prev.lives >= MAX_LIVES) return prev;
-
-        const now = Date.now();
-        const elapsed = now - prev.lastLifeRefill;
-
-        if (elapsed < LIFE_REFILL_MS) return prev;
-
-        const refillCount = Math.floor(elapsed / LIFE_REFILL_MS);
-        const newLives = Math.min(MAX_LIVES, prev.lives + refillCount);
-
-        return {
-          ...prev,
-          lives: newLives,
-          lastLifeRefill: now,
-        };
-      });
-    }, 1000);
-
-    return () => clearInterval(id);
+    const checkLives = () => {
+      const stored = localStorage.getItem('match3_lives');
+      const lives = stored ? parseInt(stored, 10) : MAX_LIVES;
+      const validLives = Math.min(MAX_LIVES, Math.max(0, isNaN(lives) ? MAX_LIVES : lives));
+      setCurrentLives(validLives);
+    };
+    
+    // Check immediately and every second
+    checkLives();
+    const interval = setInterval(checkLives, 1000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   const playMatch3 = () => {
@@ -107,19 +101,16 @@ const GamesTab: React.FC = () => {
       return;
     }
 
-    if (gameState.lives <= 0) {
-      setShowAdModal(true);
-      return;
-    }
-
-    // Consume one life
-    setGameState(prev => ({ ...prev, lives: prev.lives - 1 }));
-
     navigate("/match3");
   };
 
   const handleAdRewardGranted = () => {
-    setGameState(prev => ({ ...prev, lives: MAX_LIVES, lastLifeRefill: Date.now() }));
+    setCurrentLives((l) => {
+      const nl = Math.min(MAX_LIVES, l + 1);
+      localStorage.setItem('match3_lives', nl.toString());
+      return nl;
+    });
+    setShowAdModal(false);
   };
 
   const userRank = userProfile
@@ -156,23 +147,6 @@ const GamesTab: React.FC = () => {
           </div>
         )}
 
-        {/* Lives */}
-        <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 flex justify-between">
-          <div className="flex items-center gap-2">
-            <Heart className="text-red-400" size={20} />
-            <span className="font-semibold">Lives</span>
-          </div>
-          <div className="flex gap-1">
-            {Array.from({ length: MAX_LIVES }).map((_, i) => (
-              <Heart
-                key={i}
-                size={16}
-                className={i < gameState.lives ? "text-red-400 fill-current" : "text-gray-600"}
-              />
-            ))}
-          </div>
-        </div>
-
         {/* ONLY ONE GAME CARD */}
         <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 flex items-center gap-4">
           <img
@@ -189,10 +163,21 @@ const GamesTab: React.FC = () => {
                 Best: {gameState.highScores.match3}
               </p>
             )}
+            
+            <div className="flex items-center gap-1 mt-1">
+              <Heart size={14} className="text-red-500" />
+              <span className="text-white text-xs font-semibold">{currentLives}/{MAX_LIVES}</span>
+            </div>
           </div>
 
           <button
-            onClick={playMatch3}
+            onClick={() => {
+              if (currentLives <= 0) {
+                setShowAdModal(true);
+              } else {
+                playMatch3();
+              }
+            }}
             className="bg-green-600 px-4 py-2 rounded-xl flex items-center gap-2 font-semibold"
           >
             <Play size={16} /> Play
@@ -258,6 +243,11 @@ const GamesTab: React.FC = () => {
         </div>
       )}
       <RewardedAdModal open={showAdModal} onClose={() => setShowAdModal(false)} onRewardGranted={handleAdRewardGranted} title="Refill Lives" description="Watch a short video ad to refill your lives and continue playing!" />
+      
+      {/* Banner Ad */}
+      <div className="px-6 pb-4">
+        <BannerAd className="mt-4" />
+      </div>
     </div>
   );
 };

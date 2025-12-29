@@ -14,6 +14,7 @@ interface EndLevelModalProps {
   onRetry: () => void;
   onWatchAd: () => void;
   canWatchAd: boolean;
+  adLabel?: string;
 }
 
 const EndLevelModal: React.FC<EndLevelModalProps> = ({
@@ -27,6 +28,7 @@ const EndLevelModal: React.FC<EndLevelModalProps> = ({
   onRetry,
   onWatchAd,
   canWatchAd,
+  adLabel = "Watch Ad",
 }) => {
   const [showAdOption, setShowAdOption] = useState(false);
 
@@ -143,9 +145,9 @@ const EndLevelModal: React.FC<EndLevelModalProps> = ({
                 onWatchAd();
                 setShowAdOption(false);
               }}
-              className="w-full py-3 px-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl font-bold text-white flex items-center justify-center gap-2 hover:scale-105 transition-transform"
+              className="w-full py-3 px-4 bg-gradient-to-r from_green-500 to-emerald-600 rounded-xl font-bold text-white flex items-center justify-center gap-2 hover:scale-105 transition-transform"
             >
-              ▶ Watch Ad to Shuffle
+              ▶ {adLabel}
             </button>
           </div>
         )}

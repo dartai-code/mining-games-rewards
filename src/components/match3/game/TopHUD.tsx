@@ -6,6 +6,7 @@ import { Objective } from '@/game/types';
 interface TopHUDProps {
   level: number;
   lives: number;
+  moves: number;
   score: number;
   objectives: Objective[];
   soundEnabled: boolean;
@@ -16,6 +17,7 @@ interface TopHUDProps {
 const TopHUD: React.FC<TopHUDProps> = ({
   level,
   lives,
+  moves,
   score,
   objectives,
   soundEnabled,
@@ -101,19 +103,30 @@ const TopHUD: React.FC<TopHUDProps> = ({
         </div>
       </div>
       
-      {/* Bottom row: Moves and Objectives */}
+      {/* Bottom row: Lives, Moves and Objectives */}
       <div className="flex items-center justify-between">
-        {/* Lives */}
-        <div className="flex items-center gap-3 bg-gradient-to-r from-red-500/30 to-pink-500/30 rounded-xl px-5 py-3 border border-red-400/40 shadow-lg">
-          <svg className="w-7 h-7 text-red-300 drop-shadow-lg" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-          </svg>
-          <div className="text-center">
-            <span className="text-white font-black text-2xl drop-shadow-lg block">{lives}</span>
-            <span className="text-red-200 text-sm font-semibold drop-shadow">lives</span>
+        <div className="flex items-center gap-3">
+          {/* Lives */}
+          <div className="flex items-center gap-3 bg-gradient-to-r from-red-500/30 to-pink-500/30 rounded-xl px-5 py-3 border border-red-400/40 shadow-lg">
+            <svg className="w-7 h-7 text-red-300 drop-shadow-lg" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+            </svg>
+            <div className="text-center">
+              <span className="text-white font-black text-2xl drop-shadow-lg block">{lives}</span>
+              <span className="text-red-200 text-sm font-semibold drop-shadow">lives</span>
+            </div>
+          </div>
+          {/* Moves */}
+          <div className="flex items-center gap-3 bg-gradient-to-r from-blue-500/30 to-cyan-500/30 rounded-xl px-5 py-3 border border-blue-400/40 shadow-lg">
+            <svg className="w-7 h-7 text-blue-300 drop-shadow-lg" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M13 3a9 9 0 100 18 9 9 0 000-18zm1 9H8v2h6v-2z" />
+            </svg>
+            <div className="text-center">
+              <span className="text-white font-black text-2xl drop-shadow-lg block">{moves}</span>
+              <span className="text-blue-200 text-sm font-semibold drop-shadow">moves</span>
+            </div>
           </div>
         </div>
-        
         {/* Objectives */}
         <div className="flex items-center gap-3">
           {objectives.map((obj, index) => (

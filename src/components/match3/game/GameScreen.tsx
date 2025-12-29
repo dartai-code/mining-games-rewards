@@ -36,7 +36,8 @@ const GameScreen: React.FC<GameScreenProps> = ({
     loadPlayerData()
   );
 
-  const [moves, setMoves] = useState(Infinity); // Unlimited moves with life system
+  const randomMoves = () => 18 + Math.floor(Math.random() * 8); // 18-25 inclusive
+  const [moves, setMoves] = useState<number>(randomMoves());
   const [score, setScore] = useState(0);
   const [objectives, setObjectives] = useState<Objective[]>(
     levelConfig.objectives
@@ -57,28 +58,46 @@ const GameScreen: React.FC<GameScreenProps> = ({
   const [gameKey, setGameKey] = useState(0);
   const [showAdModal, setShowAdModal] = useState(false);
   const [adBoosterType, setAdBoosterType] = useState<BoosterType | null>(null);
-  const [currentLives, setCurrentLives] = useState(() => {
-    const saved = localStorage.getItem("gameState");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return parsed.lives ?? 5;
+  const MAX_EXTRA_MOVES_ADS = 2; // Maximum 2 extra moves ads per level
+  // Lives system: max 5, regen 1 every 15 minutes
+  const MAX_LIVES = 5;
+  const LIFE_REGEN_MS = 15 * 60 * 1000; // 15 minutes
+  const LIVES_KEY = 'match3_lives';
+  const LIFE_TS_KEY = 'match3_life_ts';
+
+  const [currentLives, setCurrentLives] = useState<number>(() => {
+    const stored = localStorage.getItem(LIVES_KEY);
+    const lives = stored ? parseInt(stored, 10) : MAX_LIVES;
+    if (!localStorage.getItem(LIFE_TS_KEY)) {
+      localStorage.setItem(LIFE_TS_KEY, Date.now().toString());
     }
-    return 5;
+    return Math.min(MAX_LIVES, Math.max(0, isNaN(lives) ? MAX_LIVES : lives));
   });
 
-  // Update lives when localStorage changes
+  // Life regen ticker
   useEffect(() => {
-    const handleStorageChange = () => {
-      const saved = localStorage.getItem("gameState");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setCurrentLives(parsed.lives ?? 5);
+    const tick = () => {
+      const tsRaw = localStorage.getItem(LIFE_TS_KEY);
+      const lastTs = tsRaw ? parseInt(tsRaw, 10) : Date.now();
+      if (currentLives >= MAX_LIVES) {
+        localStorage.setItem(LIFE_TS_KEY, Date.now().toString());
+        return;
+      }
+      const now = Date.now();
+      const elapsed = now - lastTs;
+      const livesToAdd = Math.floor(elapsed / LIFE_REGEN_MS);
+      if (livesToAdd > 0) {
+        const newLives = Math.min(MAX_LIVES, currentLives + livesToAdd);
+        setCurrentLives(newLives);
+        localStorage.setItem(LIVES_KEY, newLives.toString());
+        const remainder = elapsed % LIFE_REGEN_MS;
+        localStorage.setItem(LIFE_TS_KEY, (now - remainder).toString());
       }
     };
-
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+    const id = setInterval(tick, 60000); // every minute
+    tick();
+    return () => clearInterval(id);
+  }, [currentLives]);
 
   /* ---------------- SOUND ---------------- */
   useEffect(() => {
@@ -89,7 +108,7 @@ const GameScreen: React.FC<GameScreenProps> = ({
   useEffect(() => {
     const config = getLevelConfig(level);
     setLevelConfig(config);
-    setMoves(Infinity); // Unlimited moves
+    setMoves(randomMoves()); // Limited moves per level
     setScore(0);
     setObjectives(config.objectives.map((o) => ({ ...o })));
     setActiveBooster(null);
@@ -109,8 +128,18 @@ const GameScreen: React.FC<GameScreenProps> = ({
         setGameResult({ won, score: finalScore, stars });
         setShowEndModal(true);
       } else {
-        // Lost: offer ad for +5 moves
-        setShowAdModal(true);
+        // Lost: deduct 1 life
+        setCurrentLives((l) => {
+          const nl = Math.max(0, l - 1);
+          localStorage.setItem(LIVES_KEY, nl.toString());
+          // when losing a life, set timestamp if we were full, to start regen
+          if (l === MAX_LIVES) {
+            localStorage.setItem(LIFE_TS_KEY, Date.now().toString());
+          }
+          return nl;
+        });
+        setGameResult({ won: false, score: finalScore, stars: 0 });
+        setShowEndModal(true);
       }
     },
     [level]
@@ -130,25 +159,40 @@ const GameScreen: React.FC<GameScreenProps> = ({
       savePlayerData(updated);
       setAdBoosterType(null);
     } else {
-      // For life system, ad allows continue (shuffle board)
-      setGameResult(null);
-      setShowEndModal(false);
-      // Trigger board shuffle by resetting game key
-      setGameKey((k) => k + 1);
+      if (currentLives <= 0) {
+        // Grant +1 life
+        setCurrentLives((l) => {
+          const nl = Math.min(MAX_LIVES, l + 1);
+          localStorage.setItem(LIVES_KEY, nl.toString());
+          return nl;
+        });
+        // Keep end modal open so user can retry
+      } else {
+        // Extra moves reward: add +5 moves and continue playing
+        setMoves((m) => m + 5);
+        setGameResult(null);
+        setShowEndModal(false);
+      }
     }
     setShowAdModal(false);
-  }, [adBoosterType, playerData]);
+  }, [adBoosterType, playerData, currentLives]);
   const handleRetry = useCallback(() => {
+    if (currentLives <= 0) {
+      // No lives: prompt ad for +1 life
+      setAdBoosterType(null);
+      setShowAdModal(true);
+      return;
+    }
     const config = getLevelConfig(level);
     setLevelConfig(config);
-    setMoves(Infinity); // Unlimited moves
+    setMoves(randomMoves()); // Limited moves per level
     setScore(0);
     setObjectives(config.objectives.map((o) => ({ ...o })));
     setActiveBooster(null);
     setGameResult(null);
     setShowEndModal(false);
     setGameKey((k) => k + 1);
-  }, [level]);
+  }, [level, currentLives]);
 
   const handleContinue = useCallback(() => {
     if (gameResult) {
@@ -158,13 +202,14 @@ const GameScreen: React.FC<GameScreenProps> = ({
   }, [gameResult, level, onLevelComplete]);
 
   const handleWatchAd = useCallback(() => {
-    if (adsWatched < 2) {
+    // Only allow watching rewarded ads for extra moves when moves are limited.
+    if (adsWatched < MAX_EXTRA_MOVES_ADS && Number.isFinite(moves)) {
       setAdsWatched((a) => a + 1);
       setShowAdModal(true);
       setShowEndModal(false);
       setGameResult(null);
     }
-  }, [adsWatched]);
+  }, [adsWatched, moves]);
 
   /* -------- HUD / BOOSTERS -------- */
   const handleSoundToggle = useCallback(() => {
@@ -199,6 +244,7 @@ const GameScreen: React.FC<GameScreenProps> = ({
       <TopHUD
         level={level}
         lives={currentLives}
+        moves={moves}
         score={score}
         objectives={objectives}
         soundEnabled={playerData.soundEnabled}
@@ -216,6 +262,8 @@ const GameScreen: React.FC<GameScreenProps> = ({
           activeBooster={activeBooster}
           onBoosterUsed={handleBoosterUsed}
           extraMoves={extraMoves}
+          movesRemaining={moves}
+          onMoveMade={() => setMoves((m) => Math.max(0, m - 1))}
         />
       </div>
 
@@ -236,7 +284,8 @@ const GameScreen: React.FC<GameScreenProps> = ({
         onContinue={handleContinue}
         onRetry={handleRetry}
         onWatchAd={handleWatchAd}
-        canWatchAd={adsWatched < 2}
+        canWatchAd={(adsWatched < MAX_EXTRA_MOVES_ADS && Number.isFinite(moves)) || currentLives <= 0}
+        adLabel={currentLives <= 0 ? "Watch Ad +1 Life" : `Watch Ad +5 Moves (${MAX_EXTRA_MOVES_ADS - adsWatched} left)`}
       />
 
       {/* REWARDED AD MODAL */}
@@ -244,8 +293,8 @@ const GameScreen: React.FC<GameScreenProps> = ({
         open={showAdModal}
         onClose={() => { setShowAdModal(false); setAdBoosterType(null); }}
         onRewardGranted={handleAdRewardGranted}
-        title={adBoosterType ? `Refill ${adBoosterType.replace('_', ' ')}` : "Shuffle Board"}
-        description={adBoosterType ? `Watch a short video ad to get 3 uses of ${adBoosterType.replace('_', ' ')}!` : "Watch a short video ad to shuffle the board and continue playing!"}
+        title={adBoosterType ? `Refill ${adBoosterType.replace('_', ' ')}` : (currentLives <= 0 ? "Watch Ad +1 Life" : "Watch Ad +5 Moves")}
+        description={adBoosterType ? `Refill ${adBoosterType.replace('_', ' ')} (Ad)` : (currentLives <= 0 ? "Watch Ad +1 Life" : "Watch Ad +5 Moves")}
       />
     </div>
   );

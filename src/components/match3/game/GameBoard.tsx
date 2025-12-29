@@ -36,6 +36,8 @@ interface GameBoardProps {
   activeBooster: BoosterType | null;
   onBoosterUsed: () => void;
   extraMoves: number;
+  movesRemaining: number;
+  onMoveMade: () => void;
 }
 
 const GameBoard: React.FC<GameBoardProps> = ({
@@ -46,6 +48,8 @@ const GameBoard: React.FC<GameBoardProps> = ({
   activeBooster,
   onBoosterUsed,
   extraMoves,
+  movesRemaining,
+  onMoveMade,
 }) => {
   const [board, setBoard] = useState<Tile[][]>(() => createInitialBoard(levelConfig));
   const [score, setScore] = useState(0);
@@ -60,9 +64,24 @@ const GameBoard: React.FC<GameBoardProps> = ({
   const isProcessing = useRef(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const gameEndedRef = useRef(false);
+  const timeoutRefs = useRef<NodeJS.Timeout[]>([]);
+
+  // Touch/swipe handling
+  const touchStartRef = useRef<{ x: number; y: number; row: number; col: number } | null>(null);
+  const touchMoveThreshold = 15; // pixels to detect swipe
+  const lastClickTimeRef = useRef(0);
+  const clickDebounceMs = 50; // Prevent rapid clicks
 
   // Calculate tile size based on container
   const [tileSize, setTileSize] = useState(40);
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      timeoutRefs.current.forEach(timeout => clearTimeout(timeout));
+      timeoutRefs.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     const updateSize = () => {
@@ -89,6 +108,19 @@ const GameBoard: React.FC<GameBoardProps> = ({
   useEffect(() => {
     onObjectivesChange(objectives);
   }, [objectives, onObjectivesChange]);
+
+  // Check for game end when moves reach 0
+  useEffect(() => {
+    if (movesRemaining <= 0 && gameStatus === 'playing' && !gameEndedRef.current && !isProcessing.current) {
+      const won = checkWinCondition(objectives);
+      if (!won) {
+        gameEndedRef.current = true;
+        setGameStatus('lost');
+        soundManager.lose();
+        onGameEnd(false, score, objectives);
+      }
+    }
+  }, [movesRemaining, gameStatus, objectives, score, onGameEnd]);
 
   // Process cascades
   const processCascade = useCallback(async (
@@ -122,14 +154,11 @@ const GameBoard: React.FC<GameBoardProps> = ({
         currentScore += result.score * currentCombo;
         currentObjectives = result.updatedObjectives;
 
-        // Update state for animation
-        setBoard(currentBoard);
-        setScore(currentScore);
-        setObjectives(currentObjectives);
+        // Only update state once per match, not every iteration
         setCombo(currentCombo);
         setIsAnimating(true);
 
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 60));
 
         // Apply gravity
         const gravityResult = applyGravity(currentBoard);
@@ -137,8 +166,7 @@ const GameBoard: React.FC<GameBoardProps> = ({
           currentBoard = gravityResult.newBoard;
           soundManager.cascade();
 
-          setBoard(currentBoard);
-          await new Promise(resolve => setTimeout(resolve, 150));
+          await new Promise(resolve => setTimeout(resolve, 40));
 
           // Reset animation flags
           currentBoard = currentBoard.map(row => 
@@ -149,7 +177,6 @@ const GameBoard: React.FC<GameBoardProps> = ({
               fallDistance: 0,
             }))
           );
-          setBoard(currentBoard);
         }
       }
     }
@@ -158,14 +185,14 @@ const GameBoard: React.FC<GameBoardProps> = ({
     let hasMoves = hasPossibleMoves(currentBoard);
     if (!hasMoves) {
       currentBoard = shuffleBoard(currentBoard);
-      setBoard(currentBoard);
       hasMoves = hasPossibleMoves(currentBoard);
     }
 
     // Check win/lose conditions
     const won = checkWinCondition(currentObjectives);
-    const lost = checkLoseCondition(hasMoves, currentObjectives);
+    const lost = checkLoseCondition(hasMoves, currentObjectives) || (movesRemaining <= 0 && !won);
 
+    // Update all state at once at the end
     setBoard(currentBoard);
     setScore(currentScore);
     setObjectives(currentObjectives);
@@ -185,11 +212,17 @@ const GameBoard: React.FC<GameBoardProps> = ({
     }
 
     isProcessing.current = false;
-  }, [onGameEnd]);
+  }, [movesRemaining, onGameEnd]);
 
   // Handle tile click
   const handleTileClick = useCallback((row: number, col: number) => {
-    if (isAnimating || gameStatus !== 'playing') return;
+    // Debounce clicks
+    const now = Date.now();
+    if (now - lastClickTimeRef.current < clickDebounceMs) return;
+    lastClickTimeRef.current = now;
+
+    // Block all interactions during animations or processing
+    if (isAnimating || gameStatus !== 'playing' || movesRemaining <= 0 || isProcessing.current) return;
 
     const clickedPos: Position = { row, col };
     const tile = board[row][col];
@@ -208,9 +241,10 @@ const GameBoard: React.FC<GameBoardProps> = ({
         setIsAnimating(true);
 
         onBoosterUsed();
-        setTimeout(() => {
+        const timeout = setTimeout(() => {
           processCascade(result.newBoard, score + result.score, result.updatedObjectives);
-        }, 200);
+        }, 80);
+        timeoutRefs.current.push(timeout);
       }
       return;
     }
@@ -225,49 +259,7 @@ const GameBoard: React.FC<GameBoardProps> = ({
         // Deselect
         setSelectedTile(null);
       } else if (isAdjacent(selectedTile, clickedPos)) {
-        // Try to swap
-        if (canSwap(board, selectedTile, clickedPos)) {
-          soundManager.swap();
-
-          const newBoard = swapTiles(board, selectedTile, clickedPos);
-
-          // Check for special tile activation
-          const selectedTileData = board[selectedTile.row][selectedTile.col];
-          const targetTile = board[clickedPos.row][clickedPos.col];
-
-          let finalBoard = newBoard;
-          let extraScore = 0;
-          let finalObjectives = objectives;
-
-          if (selectedTileData.special !== 'none') {
-            const result = activateSpecialTile(newBoard, clickedPos, objectives);
-            finalBoard = result.newBoard;
-            extraScore += result.score;
-            finalObjectives = result.updatedObjectives;
-            soundManager.bomb();
-          }
-
-          if (targetTile.special !== 'none') {
-            const result = activateSpecialTile(finalBoard, selectedTile, finalObjectives);
-            finalBoard = result.newBoard;
-            extraScore += result.score;
-            finalObjectives = result.updatedObjectives;
-            soundManager.bomb();
-          }
-
-          setBoard(finalBoard);
-          setScore(prev => prev + extraScore);
-          setObjectives(finalObjectives);
-          setSelectedTile(null);
-          setIsAnimating(true);
-
-          setTimeout(() => {
-            processCascade(finalBoard, score + extraScore, finalObjectives);
-          }, 200);
-        } else {
-          // Invalid swap
-          setSelectedTile(null);
-        }
+        performSwap(selectedTile, clickedPos);
       } else {
         // Select new tile
         if (tile.type === 'gem') {
@@ -277,16 +269,123 @@ const GameBoard: React.FC<GameBoardProps> = ({
         }
       }
     }
-  }, [board, moves, score, objectives, isAnimating, gameStatus, selectedTile, activeBooster, onBoosterUsed, processCascade]);
+  }, [board, score, objectives, isAnimating, gameStatus, selectedTile, activeBooster, onBoosterUsed, processCascade, onMoveMade]);
+
+  // Extract swap logic to reuse for both click and swipe
+  const performSwap = useCallback((from: Position, to: Position) => {
+    // Clear selection immediately to prevent double-clicks
+    setSelectedTile(null);
+    
+    if (!canSwap(board, from, to)) {
+      return;
+    }
+
+    soundManager.swap();
+    onMoveMade();
+
+    const newBoard = swapTiles(board, from, to);
+    const selectedTileData = board[from.row][from.col];
+    const targetTile = board[to.row][to.col];
+
+    let finalBoard = newBoard;
+    let extraScore = 0;
+    let finalObjectives = objectives;
+
+    if (selectedTileData.special !== 'none') {
+      const result = activateSpecialTile(newBoard, to, objectives);
+      finalBoard = result.newBoard;
+      extraScore += result.score;
+      finalObjectives = result.updatedObjectives;
+      soundManager.bomb();
+    }
+
+    if (targetTile.special !== 'none') {
+      const result = activateSpecialTile(finalBoard, from, finalObjectives);
+      finalBoard = result.newBoard;
+      extraScore += result.score;
+      finalObjectives = result.updatedObjectives;
+      soundManager.bomb();
+    }
+
+    setBoard(finalBoard);
+    setScore(prev => prev + extraScore);
+    setObjectives(finalObjectives);
+    setIsAnimating(true);
+
+    const timeout = setTimeout(() => {
+      processCascade(finalBoard, score + extraScore, finalObjectives);
+    }, 80);
+    timeoutRefs.current.push(timeout);
+  }, [board, score, objectives, processCascade, onMoveMade]);
+
+  // Touch handlers for swipe gestures
+  const handleTouchStart = useCallback((e: React.TouchEvent, row: number, col: number) => {
+    if (isAnimating || gameStatus !== 'playing' || activeBooster || movesRemaining <= 0) return;
+    
+    const touch = e.touches[0];
+    touchStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      row,
+      col
+    };
+  }, [isAnimating, gameStatus, activeBooster, movesRemaining]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current || isAnimating || gameStatus !== 'playing' || movesRemaining <= 0) return;
+    
+    e.preventDefault(); // Prevent scrolling
+  }, [isAnimating, gameStatus, movesRemaining]);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current || isAnimating || gameStatus !== 'playing') return;
+    
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - touchStartRef.current.x;
+    const deltaY = touch.clientY - touchStartRef.current.y;
+    
+    const absDeltaX = Math.abs(deltaX);
+    const absDeltaY = Math.abs(deltaY);
+    
+    // Check if swipe is significant enough
+    if (absDeltaX > touchMoveThreshold || absDeltaY > touchMoveThreshold) {
+      const { row, col } = touchStartRef.current;
+      let targetRow = row;
+      let targetCol = col;
+      
+      // Determine swipe direction
+      if (absDeltaX > absDeltaY) {
+        // Horizontal swipe
+        targetCol = deltaX > 0 ? col + 1 : col - 1;
+      } else {
+        // Vertical swipe
+        targetRow = deltaY > 0 ? row + 1 : row - 1;
+      }
+      
+      // Validate target position
+      if (targetRow >= 0 && targetRow < BOARD_SIZE && targetCol >= 0 && targetCol < BOARD_SIZE) {
+        const tile = board[row][col];
+        if (tile.type === 'gem') {
+          performSwap({ row, col }, { row: targetRow, col: targetCol });
+        }
+      }
+    }
+    
+    touchStartRef.current = null;
+  }, [board, isAnimating, gameStatus, performSwap]);
 
   return (
     <div
       ref={boardRef}
-      className="relative bg-gradient-to-br from-slate-900 via-purple-900/80 to-indigo-900/80 rounded-2xl p-3 backdrop-blur-sm shadow-2xl border border-purple-500/20"
+      className="relative bg-gradient-to-br from-slate-900 via-purple-900/80 to-indigo-900/80 rounded-2xl p-3 shadow-xl border border-purple-500/20"
       style={{
         width: '100%',
         maxWidth: 420,
-        boxShadow: '0 0 40px rgba(139, 69, 207, 0.2), inset 0 0 40px rgba(0, 0, 0, 0.3)',
+        boxShadow: '0 0 20px rgba(139, 69, 207, 0.15)',
+        willChange: isAnimating ? 'contents' : 'auto',
+        WebkitTouchCallout: 'none',
+        WebkitUserSelect: 'none',
+        touchAction: 'none',
       }}
     >
       <div
@@ -294,6 +393,7 @@ const GameBoard: React.FC<GameBoardProps> = ({
         style={{
           gridTemplateColumns: `repeat(${BOARD_SIZE}, ${tileSize}px)`,
           gridTemplateRows: `repeat(${BOARD_SIZE}, ${tileSize}px)`,
+          touchAction: 'none',
         }}
       >
         {board.map((row, rowIndex) =>
@@ -307,41 +407,27 @@ const GameBoard: React.FC<GameBoardProps> = ({
                 selectedTile?.col === colIndex
               }
               onClick={() => handleTileClick(rowIndex, colIndex)}
+              onTouchStart={(e) => handleTouchStart(e, rowIndex, colIndex)}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
             />
           ))
         )}
       </div>
 
-      {/* Combo indicator */}
+      {/* Combo indicator - simplified for mobile performance */}
       {combo > 1 && (
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none z-20">
-          <div className="relative">
-            <div className="text-5xl font-black text-transparent bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500 bg-clip-text animate-bounce drop-shadow-2xl">
-              {combo}x COMBO!
-            </div>
-            {/* Particle effects */}
-            <div className="absolute inset-0">
-              {[...Array(8)].map((_, i) => (
-                <div
-                  key={i}
-                  className="absolute w-2 h-2 bg-yellow-400 rounded-full animate-ping"
-                  style={{
-                    top: `${20 + Math.random() * 60}%`,
-                    left: `${20 + Math.random() * 60}%`,
-                    animationDelay: `${i * 0.1}s`,
-                    animationDuration: '1s',
-                  }}
-                />
-              ))}
-            </div>
+          <div className="text-4xl font-black text-transparent bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500 bg-clip-text drop-shadow-lg">
+            {combo}x COMBO!
           </div>
         </div>
       )}
 
       {/* Booster active indicator */}
       {activeBooster && (
-        <div className="absolute inset-0 border-4 border-gradient-to-r from-yellow-400 to-orange-500 rounded-2xl pointer-events-none animate-pulse shadow-2xl" 
-             style={{ boxShadow: '0 0 30px rgba(251, 191, 36, 0.5)' }} />
+        <div className="absolute inset-0 border-3 border-yellow-400 rounded-2xl pointer-events-none animate-pulse" 
+             style={{ boxShadow: '0 0 15px rgba(251, 191, 36, 0.4)' }} />
       )}
     </div>
   );
