@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "839535063372",
+    "project_id": "dart-ai-f8515",
+    "storage_bucket": "dart-ai-f8515.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:839535063372:android:32d676ce8548a086f7dfe9",
+        "android_client_info": {
+          "package_name": "com.dartai.miner"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "839535063372-8b262p11c6831q3idath1b8fph3ptbvv.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dartai.miner",
+            "certificate_hash": "b7b96787760dc7d058186448e9268ba4baa8a1a8"
+          }
+        },
+        {
+          "client_id": "839535063372-v2i3nscs83t2lor4dsi7f10oogoeupa8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dartai.miner",
+            "certificate_hash": "5b1d5a1a2a6a897cc2b452cb973de429d2a4345e"
+          }
+        },
+        {
+          "client_id": "839535063372-o1pjt9ejq8nsh6ro9g1o423ctt2d5t1t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAYDrCQB9-eiWo2j1VEzDXU0zoL8JvGenw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "839535063372-o1pjt9ejq8nsh6ro9g1o423ctt2d5t1t.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -21,7 +21,7 @@ const AppHome = () => {
           <div className="flex items-center gap-3">
             <Wallet className="text-yellow-400" />
             <div>
-              <p className="text-sm text-white/70">Dart AI Gold</p>
+              <p className="text-sm text-white/70">Darts Balance</p>
               <p className="text-lg font-semibold">0</p>
             </div>
           </div>

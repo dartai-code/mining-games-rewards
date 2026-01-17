@@ -6,6 +6,7 @@ import {
   Zap,
   AlertTriangle,
 } from 'lucide-react';
+import { Share } from '@capacitor/share';
 import { useWallet } from '../hooks/useWallet';
 import { BannerAd } from './BannerAd';
 import { RewardedAdModal } from './RewardedAdModal';
@@ -43,16 +44,6 @@ const TasksTab: React.FC = () => {
         completed: completedTasks.includes('telegram'),
       },
       {
-        id: 'discord',
-        title: 'Join Discord',
-        description: 'Join our Discord server',
-        reward: 50,
-        icon: '🎮',
-        url: 'https://discord.gg/kkh4DZup',
-        completed: completedTasks.includes('discord'),
-      },
-      // Twitter task REMOVED as requested
-      {
         id: 'share',
         title: 'Share App',
         description: 'Share with friends',
@@ -66,33 +57,55 @@ const TasksTab: React.FC = () => {
     setTasks(initialTasks);
   }, []);
 
-  const handleTaskClick = (task: Task) => {
+  const handleTaskClick = async (task: Task) => {
     if (task.completed) return;
 
     if (task.id === 'share') {
       const referralCode = localStorage.getItem('referralCode') || '';
       const referralLink = 'https://dartai.app/ref/' + referralCode;
 
-      if (navigator.share) {
-        navigator.share({
-          title: 'Dart AI',
-          text: 'Join me in collecting Dart points and playing games!',
+      try {
+        // Use Capacitor Share API for native sharing
+        await Share.share({
+          title: 'Dart AI - Earn Rewards!',
+          text: 'Join me in collecting Dart points and playing games! Use my referral code: ' + referralCode,
           url: referralLink,
+          dialogTitle: 'Share Dart AI with friends',
         });
-      } else {
-        navigator.clipboard.writeText(referralLink);
-        alert('Referral link copied!');
+        
+        // After sharing, ask for confirmation
+        setTimeout(() => {
+          const confirmed = confirm('Did you share the app? Click OK to claim your reward.');
+          if (confirmed) {
+            setSelectedTask(task);
+          }
+        }, 500);
+      } catch (error) {
+        // Fallback to clipboard if share is cancelled or not available
+        console.log('Share cancelled or not available:', error);
       }
+    } else if (task.id === 'telegram') {
+      // Open Telegram link
+      if (task.url) {
+        window.open(task.url, '_blank');
+      }
+      
+      // After opening link, ask for confirmation
+      setTimeout(() => {
+        const confirmed = confirm('Did you join our Telegram group? Click OK to claim your reward.');
+        if (confirmed) {
+          setSelectedTask(task);
+        }
+      }, 1000);
     } else {
       if (task.url) {
         window.open(task.url, '_blank');
       }
+      setSelectedTask(task);
     }
-
-    setSelectedTask(task);
   };
 
-  const completeTask = (reward: number) => {
+  const completeTask = async (reward: number) => {
     if (!selectedTask) return;
 
     const completedTasks: string[] = JSON.parse(
@@ -111,7 +124,7 @@ const TasksTab: React.FC = () => {
     );
 
     // No template literal -> avoids $ parse issues
-    addTransaction('Task', reward, selectedTask.title + ' completed');
+    await addTransaction('Task', reward, selectedTask.title + ' completed');
 
     setSelectedTask(null);
     setShowAdModal(false);
@@ -162,34 +175,80 @@ const TasksTab: React.FC = () => {
               {pendingTasks.map((task) => (
                 <div
                   key={task.id}
-                  className="bg-gray-900 rounded-2xl p-4 border border-gray-800"
+                  className={`
+                    ${task.id === 'telegram' 
+                      ? 'bg-gradient-to-br from-[#0088cc]/20 via-gray-900 to-gray-900 border-[#0088cc]/50 hover:border-[#0088cc] shadow-lg hover:shadow-[#0088cc]/20' 
+                      : 'bg-gray-900 border-gray-800 hover:border-gray-700'
+                    }
+                    rounded-2xl p-4 border-2 transition-all duration-300 hover:scale-[1.02] transform group cursor-pointer
+                  `}
+                  onClick={() => handleTaskClick(task)}
                 >
                   <div className="flex items-center gap-4">
-                    <span className="text-3xl">{task.icon}</span>
+                    <div className={`
+                      ${task.id === 'telegram' 
+                        ? 'bg-[#0088cc] animate-pulse' 
+                        : 'bg-gray-800'
+                      } 
+                      w-14 h-14 rounded-2xl flex items-center justify-center transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110
+                    `}>
+                      <span className="text-3xl">{task.icon}</span>
+                    </div>
                     <div className="flex-1">
-                      <h3 className="font-semibold">{task.title}</h3>
-                      <p className="text-gray-400 text-sm">
+                      <h3 className={`
+                        font-bold text-lg
+                        ${task.id === 'telegram' 
+                          ? 'bg-gradient-to-r from-[#0088cc] to-blue-400 bg-clip-text text-transparent' 
+                          : 'text-white'
+                        }
+                      `}>
+                        {task.title}
+                      </h3>
+                      <p className="text-gray-400 text-sm mt-1">
                         {task.description}
                       </p>
-                      <p className="text-green-400 text-sm font-medium">
-                        +{task.reward} DART
-                      </p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <p className={`
+                          text-sm font-bold
+                          ${task.id === 'telegram' 
+                            ? 'text-[#0088cc]' 
+                            : 'text-green-400'
+                          }
+                        `}>
+                          +{task.reward} DART
+                        </p>
+                        {task.id === 'telegram' && (
+                          <span className="px-2 py-0.5 bg-[#0088cc]/20 border border-[#0088cc]/50 rounded-full text-xs text-[#0088cc] font-semibold animate-pulse">
+                            Premium
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <button
-                      onClick={() => handleTaskClick(task)}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold flex items-center gap-2"
+                      className={`
+                        ${task.id === 'telegram'
+                          ? 'bg-gradient-to-r from-[#0088cc] to-[#0077b5] hover:from-[#0077b5] hover:to-[#006699] shadow-lg shadow-[#0088cc]/30' 
+                          : 'bg-blue-600 hover:bg-blue-700'
+                        }
+                        text-white px-4 py-2.5 rounded-xl font-semibold flex items-center gap-2 transition-all duration-300 group-hover:scale-105 relative overflow-hidden
+                      `}
                     >
-                      {task.id === 'share' ? (
-                        <>
-                          <Share2 size={16} />
-                          <span>Share</span>
-                        </>
-                      ) : (
-                        <>
-                          <ExternalLink size={16} />
-                          <span>Visit</span>
-                        </>
+                      {task.id === 'telegram' && (
+                        <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
                       )}
+                      <span className="relative z-10 flex items-center gap-2">
+                        {task.id === 'share' ? (
+                          <>
+                            <Share2 size={16} />
+                            <span>Share</span>
+                          </>
+                        ) : (
+                          <>
+                            <ExternalLink size={16} className="group-hover:rotate-45 transition-transform duration-300" />
+                            <span>Join</span>
+                          </>
+                        )}
+                      </span>
                     </button>
                   </div>
                 </div>

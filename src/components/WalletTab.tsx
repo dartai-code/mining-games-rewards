@@ -2,16 +2,10 @@ import React from 'react';
 import { Coins, TrendingUp, Clock, Pickaxe, Gamepad2, Users, CheckCircle } from 'lucide-react';
 import { useWallet } from '../hooks/useWallet';
 import { BannerAd } from './BannerAd';
+import { LinkAccountBanner } from './LinkAccountBanner';
 
 const WalletTab: React.FC = () => {
   const { transactions, balance, formatDate } = useWallet();
-
-  const balanceCards = [
-    { label: 'Mining Coins', amount: balance.mining, color: 'text-green-400', bg: 'bg-green-400/10', icon: Pickaxe },
-    { label: 'Game Coins', amount: balance.game, color: 'text-blue-400', bg: 'bg-blue-400/10', icon: Gamepad2 },
-    { label: 'Referral Coins', amount: balance.referral, color: 'text-orange-400', bg: 'bg-orange-400/10', icon: Users },
-    { label: 'Task Coins', amount: balance.task, color: 'text-purple-400', bg: 'bg-purple-400/10', icon: CheckCircle },
-  ];
 
   const getTransactionIcon = (type: string) => {
     switch (type) {
@@ -32,6 +26,9 @@ const WalletTab: React.FC = () => {
           <p className="text-gray-400">Track your balance and transactions</p>
         </div>
 
+        {/* Link Account Banner (for guest users) */}
+        <LinkAccountBanner />
+
         {/* Total Balance */}
         <div className="bg-gradient-to-r from-green-600 to-orange-600 rounded-2xl p-6">
           <div className="text-center">
@@ -43,27 +40,6 @@ const WalletTab: React.FC = () => {
               <TrendingUp size={16} className="text-green-300" />
               <span className="text-sm text-white/80">Active balance</span>
             </div>
-          </div>
-        </div>
-
-        {/* Balance Breakdown */}
-        <div>
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Coins size={20} className="text-yellow-400" />
-            Balance Breakdown
-          </h2>
-          <div className="grid grid-cols-2 gap-4">
-            {balanceCards.map((card, index) => (
-              <div key={index} className={`${card.bg} rounded-xl p-4 border border-gray-800`}>
-                <div className="flex items-center gap-2 mb-2">
-                  <card.icon size={16} className={card.color} />
-                  <p className="text-gray-400 text-xs">{card.label}</p>
-                </div>
-                <p className={`text-xl font-bold ${card.color}`}>
-                  {card.amount.toFixed(2)}
-                </p>
-              </div>
-            ))}
           </div>
         </div>
 
@@ -80,26 +56,29 @@ const WalletTab: React.FC = () => {
                 <p className="text-sm text-gray-500 mt-1">Start mining or playing games to collect points!</p>
               </div>
             ) : (
-              transactions.slice(0, 20).map((transaction) => (
-                <div key={transaction.id} className="bg-gray-900 rounded-xl p-4 border border-gray-800">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center">
-                        {getTransactionIcon(transaction.type)}
+              [...transactions]
+                .sort((a, b) => b.timestamp - a.timestamp)
+                .slice(0, 20)
+                .map((transaction) => (
+                  <div key={transaction.id} className="bg-gray-900 rounded-xl p-4 border border-gray-800">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center">
+                          {getTransactionIcon(transaction.type)}
+                        </div>
+                        <div>
+                          <p className="font-medium">{transaction.type}</p>
+                          <p className="text-sm text-gray-400">{transaction.note}</p>
+                          <p className="text-xs text-gray-500">{formatDate(transaction.timestamp)}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium">{transaction.type}</p>
-                        <p className="text-sm text-gray-400">{transaction.note}</p>
-                        <p className="text-xs text-gray-500">{formatDate(transaction.timestamp)}</p>
+                      <div className="text-right">
+                        <p className="font-bold text-green-400">+{transaction.amount.toFixed(2)}</p>
+                        <p className="text-xs text-gray-500">DART</p>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-green-400">+{transaction.amount.toFixed(2)}</p>
-                      <p className="text-xs text-gray-500">DART</p>
                     </div>
                   </div>
-                </div>
-              ))
+                ))
             )}
           </div>
         </div>

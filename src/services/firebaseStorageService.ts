@@ -45,18 +45,18 @@ export interface FirebaseUserData {
     isActive: boolean;
   };
   
-  // Game Progress
-  match3Progress?: {
-    currentLevel: number;
-    completedLevels: number[];
-    stars: Record<number, number>;
+  // Game Progress - Jump Climb
+  jumpClimbProgress?: {
+    highScore: number;
     lives: number;
     lastLifeUpdate: number;
   };
   
-  bullseyeProgress?: {
-    currentLevel: number;
+  // Game Progress - Stack Tower
+  stackTowerProgress?: {
     highScore: number;
+    lives: number;
+    lastLifeUpdate: number;
   };
 }
 
@@ -216,35 +216,33 @@ class FirebaseStorageService {
 
   // ========== GAME PROGRESS ==========
   
-  async updateMatch3Progress(progress: Partial<FirebaseUserData['match3Progress']>): Promise<void> {
+  async updateJumpClimbProgress(progress: Partial<FirebaseUserData['jumpClimbProgress']>): Promise<void> {
     const userId = authService.getUserId();
-    if (!userId) throw new Error('User not authenticated');
+    if (!userId) return; // Silent fail for guest users
 
     try {
       const userRef = doc(db, 'users', userId);
       await updateDoc(userRef, {
-        match3Progress: progress,
+        jumpClimbProgress: progress,
         updatedAt: serverTimestamp()
       });
     } catch (error) {
-      console.error('Error updating Match3 progress:', error);
-      throw error;
+      console.error('Error updating Jump Climb progress:', error);
     }
   }
 
-  async updateBullseyeProgress(progress: Partial<FirebaseUserData['bullseyeProgress']>): Promise<void> {
+  async updateStackTowerProgress(progress: Partial<FirebaseUserData['stackTowerProgress']>): Promise<void> {
     const userId = authService.getUserId();
-    if (!userId) throw new Error('User not authenticated');
+    if (!userId) return; // Silent fail for guest users
 
     try {
       const userRef = doc(db, 'users', userId);
       await updateDoc(userRef, {
-        bullseyeProgress: progress,
+        stackTowerProgress: progress,
         updatedAt: serverTimestamp()
       });
     } catch (error) {
-      console.error('Error updating Bullseye progress:', error);
-      throw error;
+      console.error('Error updating Stack Tower progress:', error);
     }
   }
 

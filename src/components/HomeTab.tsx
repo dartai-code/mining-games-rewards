@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Pause, Share2, Zap, Cpu, Activity } from 'lucide-react';
+import { Share } from '@capacitor/share';
 import { useMining } from '../hooks/useMining';
 import { useReferral } from '../hooks/useReferral';
 import { BannerAd } from './BannerAd';
 import { AutomaticAdsModal } from './AutomaticAdsModal';
+import { LinkAccountBanner } from './LinkAccountBanner';
 
 const HomeTab: React.FC = () => {
   const { isActive, timeRemaining, totalBalance, startMining, stopMining, formatTime } = useMining();
@@ -20,16 +22,27 @@ const HomeTab: React.FC = () => {
     startMining();
   };
 
-  const handleShare = () => {
-    if (navigator.share) {
-      navigator.share({
-        title: 'Dart AI',
-        text: 'Join me in collecting Dart points and playing games!',
-        url: getReferralLink()
+  const handleShare = async () => {
+    const referralLink = getReferralLink();
+    const referralCode = localStorage.getItem('referralCode') || '';
+    
+    try {
+      // Use Capacitor Share API for native sharing
+      await Share.share({
+        title: 'Dart AI - Earn Rewards!',
+        text: `Join me in collecting Dart points and playing games! Use my referral code: ${referralCode}`,
+        url: referralLink,
+        dialogTitle: 'Share Dart AI with friends',
       });
-    } else {
-      navigator.clipboard.writeText(getReferralLink());
-      alert('Referral link copied to clipboard!');
+    } catch (error) {
+      // Fallback to clipboard if share is cancelled or not available
+      console.log('Share cancelled or not available:', error);
+      try {
+        await navigator.clipboard.writeText(referralLink);
+        alert('Referral link copied to clipboard!');
+      } catch (clipboardError) {
+        console.error('Clipboard error:', clipboardError);
+      }
     }
   };
 
@@ -161,13 +174,16 @@ const HomeTab: React.FC = () => {
           </h1>
           <div className="flex items-center justify-center gap-2 mt-2">
             <Cpu className="w-4 h-4 text-green-400 animate-spin-slow" />
-            <p className="text-gray-300 tracking-widest">Mine • Play • Collect</p>
+            <p className="text-gray-300 tracking-widest">Mine • Play • Rewarded</p>
             <Zap className="w-4 h-4 text-orange-400 animate-pulse" />
           </div>
         </div>
       </div>
 
       <div className="flex-1 p-6 space-y-6 relative z-10">
+        {/* Link Account Banner */}
+        <LinkAccountBanner />
+        
         {/* Balance card with holographic effect */}
         <div className="relative group">
           <div className="absolute inset-0 bg-gradient-to-r from-green-600 to-orange-600 rounded-2xl blur-xl opacity-0 group-hover:opacity-30 transition-opacity duration-500" />
@@ -178,7 +194,7 @@ const HomeTab: React.FC = () => {
             <div className="text-center relative z-10">
               <div className="flex items-center justify-center gap-2 mb-2">
                 <Activity className="w-4 h-4 text-green-400 animate-pulse" />
-                <p className="text-gray-400 text-sm tracking-wider">TOTAL BALANCE</p>
+                <p className="text-gray-400 text-sm tracking-wider">MINING POINTS</p>
               </div>
               <div className="relative inline-block">
                 <p className="text-5xl font-bold bg-gradient-to-r from-green-400 to-emerald-300 bg-clip-text text-transparent animate-gradient">

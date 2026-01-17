@@ -6,35 +6,22 @@ import TasksTab from './TasksTab';
 import WalletTab from './WalletTab';
 import LeaderboardTab from './LeaderboardTab';
 import BottomNavigation from './BottomNavigation';
-import CommunityJoinScreen from './CommunityJoinScreen';
 import UserSetupModal from './UserSetupModal';
 import { leaderboardService } from '../services/leaderboardService';
 
 const AppLayout: React.FC = () => {
   const [activeTab, setActiveTab] = useState('home');
-  const [showCommunity, setShowCommunity] = useState(false);
   const [showUserSetup, setShowUserSetup] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const hasJoined = localStorage.getItem('hasJoinedCommunity') === 'true';
     const userProfile = leaderboardService.getUserProfile();
     
-    if (!hasJoined) {
-      setShowCommunity(true);
-    } else if (!userProfile) {
+    if (!userProfile) {
       setShowUserSetup(true);
     }
     setIsLoading(false);
   }, []);
-
-  const handleCommunityComplete = () => {
-    setShowCommunity(false);
-    const userProfile = leaderboardService.getUserProfile();
-    if (!userProfile) {
-      setShowUserSetup(true);
-    }
-  };
 
   const handleUserSetupComplete = () => {
     setShowUserSetup(false);
@@ -58,10 +45,6 @@ const AppLayout: React.FC = () => {
         <div className="animate-spin w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full" />
       </div>
     );
-  }
-
-  if (showCommunity) {
-    return <CommunityJoinScreen onComplete={handleCommunityComplete} />;
   }
 
   return (

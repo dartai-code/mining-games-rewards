@@ -5,7 +5,7 @@ export interface LeaderboardEntry {
   username: string;
   country: string;
   score: number; // here: DART points
-  game: 'runner' | 'snake' | 'match3';
+  game: 'stack-tower' | 'jump-climb';
   timestamp: number;
 }
 
@@ -79,7 +79,7 @@ export const leaderboardService = {
     username: string,
     country: string,
     score: number,
-    game: 'runner' | 'snake' | 'match3'
+    game: 'stack-tower' | 'jump-climb'
   ) {
     const data = this.getData();
     const now = Date.now();
@@ -209,7 +209,7 @@ export const leaderboardService = {
   // ---------- MOCK DATA ----------
 
   generateMockData(period: 'day' | 'week' | 'month'): LeaderboardEntry[] {
-    const games: Array<'runner' | 'snake' | 'match3'> = ['runner', 'snake', 'match3'];
+    const games: Array<'stack-tower' | 'jump-climb'> = ['stack-tower', 'jump-climb'];
     const countries = ['US', 'GB', 'CA', 'AU', 'IN', 'DE', 'FR', 'JP', 'BR', 'MX'];
     const names = [
       'Alex',

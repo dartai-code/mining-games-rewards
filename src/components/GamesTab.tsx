@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Play, Heart, Trophy, Medal, Target } from "lucide-react";
+import { Play, Heart, Trophy, Medal, Layers, Mountain } from "lucide-react";
 import { useWallet } from "../hooks/useWallet";
 import { leaderboardService } from "../services/leaderboardService";
 import { useNavigate } from "react-router-dom";
@@ -10,8 +10,8 @@ const MAX_LIVES = 5;
 const LIFE_REFILL_MS = 10 * 60 * 1000; // 10 minutes
 
 interface HighScores {
-  match3: number;
-  bullseye: number;
+  jumpClimb: number;
+  stackTower: number;
 }
 
 interface GameState {
@@ -25,53 +25,17 @@ const GamesTab: React.FC = () => {
 
   const [showRankModal, setShowRankModal] = useState(false);
   const [rankPeriod, setRankPeriod] = useState<"daily" | "weekly" | "monthly">("weekly");
-  const [showAdModal, setShowAdModal] = useState(false);
-  const [currentLevel, setCurrentLevel] = useState(() => {
-    const saved = localStorage.getItem('currentLevel');
-    return saved ? parseInt(saved, 10) : 1;
-  });
-
-  // Get lives from Match-3's lives system
-  const [currentLives, setCurrentLives] = useState<number>(() => {
-    const stored = localStorage.getItem('match3_lives');
-    const lives = stored ? parseInt(stored, 10) : MAX_LIVES;
-    return Math.min(MAX_LIVES, Math.max(0, isNaN(lives) ? MAX_LIVES : lives));
-  });
-
-  // Sync current level with localStorage changes
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const saved = localStorage.getItem('currentLevel');
-      const level = saved ? parseInt(saved, 10) : 1;
-      setCurrentLevel(level);
-    };
-
-    // Listen for storage changes
-    window.addEventListener('storage', handleStorageChange);
-    
-    // Also check periodically in case of same-tab updates
-    const interval = setInterval(() => {
-      const saved = localStorage.getItem('currentLevel');
-      const level = saved ? parseInt(saved, 10) : 1;
-      setCurrentLevel(prev => prev !== level ? level : prev);
-    }, 1000);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
-    };
-  }, []);
 
   const [gameState, setGameState] = useState<GameState>(() => {
     const saved = localStorage.getItem("gameState");
     if (saved) {
       const parsed = JSON.parse(saved);
       return {
-        highScores: parsed.highScores ?? { match3: 0, bullseye: 0 },
+        highScores: parsed.highScores ?? { jumpClimb: 0, stackTower: 0 },
       };
     }
     return {
-      highScores: { match3: 0, bullseye: 0 },
+      highScores: { jumpClimb: 0, stackTower: 0 },
     };
   });
 
@@ -79,39 +43,47 @@ const GamesTab: React.FC = () => {
     localStorage.setItem("gameState", JSON.stringify(gameState));
   }, [gameState]);
 
-  // Sync lives from Match-3 lives system
+  // Jump Climb lives
+  const [jumpClimbLives, setJumpClimbLives] = useState<number>(() => {
+    const stored = localStorage.getItem('jumpclimb_lives');
+    const lives = stored ? parseInt(stored, 10) : 10;
+    return Math.min(10, Math.max(0, isNaN(lives) ? 10 : lives));
+  });
+
   useEffect(() => {
-    const checkLives = () => {
-      const stored = localStorage.getItem('match3_lives');
-      const lives = stored ? parseInt(stored, 10) : MAX_LIVES;
-      const validLives = Math.min(MAX_LIVES, Math.max(0, isNaN(lives) ? MAX_LIVES : lives));
-      setCurrentLives(validLives);
+    const checkJumpClimbLives = () => {
+      const stored = localStorage.getItem('jumpclimb_lives');
+      const lives = stored ? parseInt(stored, 10) : 10;
+      const validLives = Math.min(10, Math.max(0, isNaN(lives) ? 10 : lives));
+      setJumpClimbLives(validLives);
     };
     
-    // Check immediately and every second
-    checkLives();
-    const interval = setInterval(checkLives, 1000);
+    checkJumpClimbLives();
+    const interval = setInterval(checkJumpClimbLives, 1000);
     
     return () => clearInterval(interval);
   }, []);
 
-  const playMatch3 = () => {
-    if (!userProfile) {
-      alert("Please login to play.");
-      return;
-    }
+  // Stack Tower lives
+  const [stackTowerLives, setStackTowerLives] = useState<number>(() => {
+    const stored = localStorage.getItem('stacktower_lives');
+    const lives = stored ? parseInt(stored, 10) : 10;
+    return Math.min(10, Math.max(0, isNaN(lives) ? 10 : lives));
+  });
 
-    navigate("/match3");
-  };
-
-  const handleAdRewardGranted = () => {
-    setCurrentLives((l) => {
-      const nl = Math.min(MAX_LIVES, l + 1);
-      localStorage.setItem('match3_lives', nl.toString());
-      return nl;
-    });
-    setShowAdModal(false);
-  };
+  useEffect(() => {
+    const checkStackTowerLives = () => {
+      const stored = localStorage.getItem('stacktower_lives');
+      const lives = stored ? parseInt(stored, 10) : 10;
+      const validLives = Math.min(10, Math.max(0, isNaN(lives) ? 10 : lives));
+      setStackTowerLives(validLives);
+    };
+    
+    checkStackTowerLives();
+    const interval = setInterval(checkStackTowerLives, 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   const userRank = userProfile
     ? leaderboardService.getUserRank(userProfile.username, rankPeriod)
@@ -122,7 +94,7 @@ const GamesTab: React.FC = () => {
       <div className="p-6 space-y-6">
 
         <h1 className="text-center text-2xl font-bold">Games</h1>
-        <p className="text-center text-gray-400">Play & earn Dart AI Gold.</p>
+        <p className="text-center text-gray-400">Play & Earn Darts</p>
 
         {/* USER CARD */}
         {userProfile && (
@@ -147,70 +119,77 @@ const GamesTab: React.FC = () => {
           </div>
         )}
 
-        {/* ONLY ONE GAME CARD */}
+        {/* JUMP CLIMB GAME CARD */}
         <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 flex items-center gap-4">
-          <img
-            src="https://d64gsuwffb70l.cloudfront.net/68d5295ba44799c71a50ece8_1758800341453_450a9ef5.webp"
-            className="w-16 h-16 rounded-lg"
-          />
+          <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center">
+            <Mountain className="w-8 h-8 text-white" />
+          </div>
           <div className="flex-1">
-            <h3 className="font-semibold">Match-3 Gems - Level {currentLevel}</h3>
-            <p className="text-gray-400 text-xs">Match tiles & score big!</p>
-            <p className="text-green-400 text-xs">Dart AI Gold Rewards</p>
+            <h3 className="font-semibold">Jump Climb</h3>
+            <p className="text-gray-400 text-xs">Climb to the top! Don't fall!</p>
+            <p className="text-green-400 text-xs">Earn Darts</p>
 
-            {gameState.highScores.match3 > 0 && (
+            {gameState.highScores.jumpClimb > 0 && (
               <p className="text-orange-400 text-xs mt-1">
-                Best: {gameState.highScores.match3}
+                Best: Floor {gameState.highScores.jumpClimb}
               </p>
             )}
             
             <div className="flex items-center gap-1 mt-1">
               <Heart size={14} className="text-red-500" />
-              <span className="text-white text-xs font-semibold">{currentLives}/{MAX_LIVES}</span>
+              <span className="text-white text-xs font-semibold">{jumpClimbLives}/10</span>
             </div>
           </div>
 
           <button
             onClick={() => {
-              if (currentLives <= 0) {
-                setShowAdModal(true);
+              if (!userProfile) {
+                alert("Please login to play.");
+              } else if (jumpClimbLives <= 0) {
+                alert('No lives left! Wait for refill or watch an ad in the game.');
               } else {
-                playMatch3();
+                navigate('/jump-climb');
               }
             }}
-            className="bg-green-600 px-4 py-2 rounded-xl flex items-center gap-2 font-semibold"
+            className="bg-blue-600 px-4 py-2 rounded-xl flex items-center gap-2 font-semibold"
           >
             <Play size={16} /> Play
           </button>
         </div>
 
-        {/* DART GAME CARD */}
+        {/* STACK TOWER GAME CARD */}
         <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 flex items-center gap-4">
-          <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-red-500 to-yellow-500 flex items-center justify-center">
-            <Target className="w-8 h-8 text-white" />
+          <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+            <Layers className="w-8 h-8 text-white" />
           </div>
           <div className="flex-1">
-            <h3 className="font-semibold">Bullseye</h3>
-            <p className="text-gray-400 text-xs">Hit the bullseye!</p>
-            <p className="text-green-400 text-xs">Dart AI Gold Rewards</p>
+            <h3 className="font-semibold">Stack Tower</h3>
+            <p className="text-gray-400 text-xs">Stack blocks perfectly!</p>
+            <p className="text-green-400 text-xs">Earn Darts</p>
 
-            {(() => {
-              const bullseyeLevel = localStorage.getItem('bullseyeLevel');
-              const currentLevel = bullseyeLevel ? parseInt(bullseyeLevel, 10) : 1;
-              return (
-                <p className="text-orange-400 text-xs mt-1">
-                  Level: {currentLevel}
-                  {gameState.highScores.bullseye > 0 && ` | Best: ${gameState.highScores.bullseye}`}
-                </p>
-              );
-            })()}
+            {gameState.highScores.stackTower > 0 && (
+              <p className="text-orange-400 text-xs mt-1">
+                Best: {gameState.highScores.stackTower} blocks
+              </p>
+            )}
+            
+            <div className="flex items-center gap-1 mt-1">
+              <Heart size={14} className="text-red-500" />
+              <span className="text-white text-xs font-semibold">{stackTowerLives}/10</span>
+            </div>
           </div>
 
           <button
-            onClick={() => navigate('/dart')}
-            className="bg-red-600 px-4 py-2 rounded-xl flex items-center gap-2 font-semibold"
+            onClick={() => {
+              if (stackTowerLives <= 0) {
+                alert('No lives left! Wait for refill or watch an ad in the game.');
+              } else {
+                navigate('/stack-tower');
+              }
+            }}
+            className="bg-purple-600 px-4 py-2 rounded-xl flex items-center gap-2 font-semibold"
           >
-            <Target size={16} /> Play
+            <Layers size={16} /> Play
           </button>
         </div>
       </div>
@@ -242,7 +221,6 @@ const GamesTab: React.FC = () => {
           </div>
         </div>
       )}
-      <RewardedAdModal open={showAdModal} onClose={() => setShowAdModal(false)} onRewardGranted={handleAdRewardGranted} title="Refill Lives" description="Watch a short video ad to refill your lives and continue playing!" />
       
       {/* Banner Ad */}
       <div className="px-6 pb-4">

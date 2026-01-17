@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Share } from '@capacitor/share';
 import { firebaseStorage } from '@/services/firebaseStorageService';
 import { authService } from '@/services/firebaseAuthService';
 
@@ -154,18 +155,26 @@ export const useReferrals = () => {
     }
   };
 
-  const shareReferralLink = () => {
+  const shareReferralLink = async () => {
     const link = `${window.location.origin}?ref=${myStats.referralCode}`;
     
-    if (navigator.share) {
-      navigator.share({
-        title: 'Join Dart AI',
-        text: `Use my referral code ${myStats.referralCode} to get started!`,
-        url: link
-      }).catch((error) => console.log('Error sharing:', error));
-    } else {
-      navigator.clipboard.writeText(link);
-      alert('Referral link copied to clipboard!');
+    try {
+      // Use Capacitor Share API for native sharing
+      await Share.share({
+        title: 'Join Dart AI - Earn Rewards!',
+        text: `Use my referral code ${myStats.referralCode} to get started and earn rewards!`,
+        url: link,
+        dialogTitle: 'Share Dart AI with friends',
+      });
+    } catch (error) {
+      // Fallback to clipboard if share is cancelled or not available
+      console.log('Share cancelled or not available:', error);
+      try {
+        await navigator.clipboard.writeText(link);
+        alert('Referral link copied to clipboard!');
+      } catch (clipboardError) {
+        console.error('Clipboard access failed:', clipboardError);
+      }
     }
   };
 

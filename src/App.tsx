@@ -5,8 +5,8 @@ import { Toaster } from 'sonner';
 import { AuthGuard } from '@/components/AuthGuard';
 import Index from '@/pages/Index';
 import AppHome from '@/pages/AppHome';
-import Match3Page from '@/pages/Match3Page';
-import Bullseye from '@/components/Bullseye';
+import JumpClimb from '@/components/JumpClimb';
+import StackTower from '@/components/StackTower';
 import NotFound from '@/pages/NotFound';
 
 const queryClient = new QueryClient();
@@ -20,8 +20,8 @@ function App() {
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/home" element={<AppHome />} />
-              <Route path="/match3" element={<Match3Page />} />
-              <Route path="/dart" element={<Bullseye />} />
+              <Route path="/jump-climb" element={<JumpClimb />} />
+              <Route path="/stack-tower" element={<StackTower />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
             <Toaster />

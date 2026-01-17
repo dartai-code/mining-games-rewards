@@ -73,8 +73,22 @@ export const useFirebaseAuth = () => {
       // Migrate data
       await dataMigration.migrateToFirebase();
     } catch (err: any) {
-      setError(err.message);
-      console.error('Sign in error:', err);
+      console.error('Google Sign in error:', err);
+      let errorMessage = 'Google sign-in failed. ';
+      
+      if (err.code === 'auth/popup-closed-by-user') {
+        errorMessage += 'Sign-in cancelled.';
+      } else if (err.code === 'auth/network-request-failed') {
+        errorMessage += 'Network error. Check your internet connection.';
+      } else if (err.code === 'auth/invalid-credential') {
+        errorMessage += 'Invalid credentials. Make sure SHA-1 is configured in Firebase.';
+      } else if (err.message) {
+        errorMessage += err.message;
+      } else {
+        errorMessage += 'Please try again or use Guest sign-in.';
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -91,12 +105,48 @@ export const useFirebaseAuth = () => {
     }
   };
 
+  const linkWithGoogle = async () => {
+    try {
+      setError(null);
+      setLoading(true);
+      const linkedUser = await authService.linkWithGoogle();
+      
+      // Update user document in Firestore with new info
+      await firebaseStorage.createOrUpdateUserData({
+        username: linkedUser.displayName || `Player${linkedUser.uid.substring(0, 6)}`,
+        email: linkedUser.email,
+      });
+      
+      setUser(linkedUser);
+      return linkedUser;
+    } catch (err: any) {
+      console.error('Link account error:', err);
+      let errorMessage = 'Failed to link account. ';
+      
+      if (err.code === 'auth/credential-already-in-use') {
+        errorMessage = 'This Google account is already linked to another user.';
+      } else if (err.code === 'auth/provider-already-linked') {
+        errorMessage = 'Your account is already linked to Google.';
+      } else if (err.message) {
+        errorMessage += err.message;
+      } else {
+        errorMessage += 'Please try again later.';
+      }
+      
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return {
     user,
     loading,
     error,
     signInAnonymous,
     signInWithGoogle,
+    linkWithGoogle,
     signOut,
     isAuthenticated: authService.isAuthenticated()
   };

@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { authService } from '@/services/firebaseAuthService';
+import { firebaseStorage } from '@/services/firebaseStorageService';
 
 interface MiningSession {
   isActive: boolean;
@@ -67,6 +69,15 @@ export const useMining = (): MiningHook => {
         note: '24-hour mining session completed'
       });
       localStorage.setItem('transactions', JSON.stringify(transactions));
+      
+      // Sync to Firebase if logged in
+      const userId = authService.getUserId();
+      if (userId) {
+        firebaseStorage.addTransaction('Mining', collected, '24-hour mining session completed')
+          .catch(err => console.error('Failed to sync mining reward to Firebase:', err));
+        firebaseStorage.createOrUpdateUserData({ miningSession: { startTime: 0, endTime: 0, isActive: false } })
+          .catch(err => console.error('Failed to sync mining session to Firebase:', err));
+      }
     }
   }, [session, totalBalance]);
 
@@ -87,12 +98,36 @@ export const useMining = (): MiningHook => {
     
     setSession(newSession);
     localStorage.setItem('miningSession', JSON.stringify(newSession));
+    
+    // Sync to Firebase if logged in
+    const userId = authService.getUserId();
+    if (userId) {
+      firebaseStorage.createOrUpdateUserData({
+        miningSession: {
+          startTime: now,
+          endTime: now + MINING_DURATION,
+          isActive: true
+        }
+      }).catch(err => console.error('Failed to sync mining start to Firebase:', err));
+    }
   }, []);
 
   const stopMining = useCallback(() => {
     const stoppedSession = { ...session, isActive: false };
     setSession(stoppedSession);
     localStorage.setItem('miningSession', JSON.stringify(stoppedSession));
+    
+    // Sync to Firebase if logged in
+    const userId = authService.getUserId();
+    if (userId) {
+      firebaseStorage.createOrUpdateUserData({
+        miningSession: {
+          startTime: session.startTime,
+          endTime: session.endTime,
+          isActive: false
+        }
+      }).catch(err => console.error('Failed to sync mining stop to Firebase:', err));
+    }
   }, [session]);
 
   const formatTime = useCallback((seconds: number): string => {
