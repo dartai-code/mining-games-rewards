@@ -373,6 +373,30 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
   };
 
   const resetGame = () => {
+    // Check if player has lives
+    if (currentLives <= 0) {
+      setShowRefillAdModal(true);
+      return;
+    }
+    
+    // Consume a life
+    const newLives = currentLives - 1;
+    setCurrentLives(newLives);
+    localStorage.setItem('stacktower_lives', newLives.toString());
+    
+    // Start life refill timer if needed
+    if (newLives < MAX_LIVES && nextLifeTime === 0) {
+      const nextLife = Date.now() + LIFE_REFILL_MS;
+      setNextLifeTime(nextLife);
+      localStorage.setItem('stacktower_nextLife', nextLife.toString());
+    }
+    
+    // Sync to Firebase
+    firebaseStorage.updateStackTowerProgress({
+      lives: newLives,
+      lastLifeUpdate: Date.now()
+    }).catch(err => console.log('Firebase sync failed:', err));
+    
     setGameState('playing');
     setScore(0);
     setBlocks([{ x: 140, width: INITIAL_WIDTH, color: COLORS[0] }]);
@@ -399,6 +423,9 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
       lives: newLives,
       lastLifeUpdate: 0
     }).catch(err => console.log('Firebase sync failed:', err));
+    
+    // Auto-start the game after refill
+    resetGame();
   };
 
   const getTimeUntilNextLife = () => {

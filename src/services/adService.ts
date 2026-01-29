@@ -1,5 +1,5 @@
 // AdMob Service for Capacitor Android App
-// Real AdMob IDs configured for production
+// Production AdMob IDs
 
 export const ADMOB_CONFIG = {
   APP_ID: 'ca-app-pub-5844068054295246~2712349629',

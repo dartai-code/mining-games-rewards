@@ -145,8 +145,6 @@ const GamesTab: React.FC = () => {
             onClick={() => {
               if (!userProfile) {
                 alert("Please login to play.");
-              } else if (jumpClimbLives <= 0) {
-                alert('No lives left! Wait for refill or watch an ad in the game.');
               } else {
                 navigate('/jump-climb');
               }
@@ -181,11 +179,7 @@ const GamesTab: React.FC = () => {
 
           <button
             onClick={() => {
-              if (stackTowerLives <= 0) {
-                alert('No lives left! Wait for refill or watch an ad in the game.');
-              } else {
-                navigate('/stack-tower');
-              }
+              navigate('/stack-tower');
             }}
             className="bg-purple-600 px-4 py-2 rounded-xl flex items-center gap-2 font-semibold"
           >

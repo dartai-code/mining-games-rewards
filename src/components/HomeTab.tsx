@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Share2, Zap, Cpu, Activity } from 'lucide-react';
+import { Play, Pause, Share2, Zap, Cpu, Activity, Shield } from 'lucide-react';
 import { Share } from '@capacitor/share';
 import { useMining } from '../hooks/useMining';
 import { useReferral } from '../hooks/useReferral';
 import { BannerAd } from './BannerAd';
 import { AutomaticAdsModal } from './AutomaticAdsModal';
 import { LinkAccountBanner } from './LinkAccountBanner';
+import { RecoveryCodeInput } from './RecoveryCodeInput';
 
 const HomeTab: React.FC = () => {
   const { isActive, timeRemaining, totalBalance, startMining, stopMining, formatTime } = useMining();
   const { getReferralLink } = useReferral();
   const [showAdModal, setShowAdModal] = useState(false);
+  const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const particlesRef = useRef<any[]>([]);
 
@@ -281,14 +283,7 @@ const HomeTab: React.FC = () => {
                 )}
               </div>
               
-              <div className="relative">
-                <h3 className={`text-2xl font-bold mb-2 transition-all duration-500 ${
-                  isActive 
-                    ? 'text-green-400 animate-pulse-subtle' 
-                    : 'text-gray-400'
-                }`}>
-                  {isActive ? '⚡ MINING ACTIVE' : '💤 MINING INACTIVE'}
-                </h3>
+              <div className="relative mt-4">
                 {isActive && (
                   <div className="relative inline-block">
                     <div className="text-3xl font-mono font-bold bg-gradient-to-r from-green-400 to-emerald-300 bg-clip-text text-transparent">
@@ -309,7 +304,7 @@ const HomeTab: React.FC = () => {
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
                 <Play size={24} className="animate-pulse" />
-                <span className="text-lg tracking-wider">START 24H MINING</span>
+                <span className="text-lg tracking-wider">START COLLECTING</span>
                 <Zap size={20} className="animate-pulse" />
               </button>
             </div>
@@ -322,7 +317,7 @@ const HomeTab: React.FC = () => {
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
                 <Pause size={24} />
-                <span className="text-lg tracking-wider">STOP MINING</span>
+                <span className="text-lg tracking-wider">STOP COLLECTING</span>
               </button>
             </div>
           )}
@@ -357,10 +352,36 @@ const HomeTab: React.FC = () => {
           </div>
         </div>
 
+        {/* Restore Account button */}
+        <div className="relative group">
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl blur-xl opacity-0 group-hover:opacity-30 transition-opacity duration-500" />
+          <div className="relative bg-gray-900/80 backdrop-blur-xl rounded-2xl p-6 border border-gray-800 overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-purple-400/10 rounded-full blur-2xl" />
+            
+            <div className="relative group/btn">
+              <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl blur-md opacity-50 group-hover/btn:opacity-75 transition-opacity" />
+              <button 
+                onClick={() => setShowRecoveryModal(true)} 
+                className="relative w-full bg-gradient-to-r from-purple-500 to-blue-600 hover:from-purple-600 hover:to-blue-700 text-white font-bold py-3 px-6 rounded-xl transform hover:scale-105 transition-all duration-300 overflow-hidden flex items-center justify-center gap-2"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover/btn:translate-x-full transition-transform duration-1000" />
+                <Shield size={20} />
+                <span className="relative tracking-wider">RESTORE ACCOUNT</span>
+              </button>
+            </div>
+            <p className="text-gray-400 text-xs text-center mt-2 relative z-10">Reinstalled the app? Recover your progress</p>
+          </div>
+        </div>
+
         <BannerAd className="mt-4" />
       </div>
 
       <AutomaticAdsModal open={showAdModal} onClose={() => setShowAdModal(false)} onAdsDismissed={handleAdsDismissed} />
+      <RecoveryCodeInput 
+        open={showRecoveryModal} 
+        onClose={() => setShowRecoveryModal(false)}
+        onRecoverySuccess={() => window.location.reload()}
+      />
     </div>
   );
 };

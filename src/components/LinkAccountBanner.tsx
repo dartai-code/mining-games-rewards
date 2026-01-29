@@ -10,6 +10,9 @@ export function LinkAccountBanner() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Hide for now until Google Sign-in is fixed
+  return null;
+
   // Only show if user is anonymous
   if (!user?.isAnonymous || success) {
     return null;

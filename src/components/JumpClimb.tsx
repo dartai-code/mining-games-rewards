@@ -212,6 +212,12 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
             setNextLifeTime(0);
           }
         }
+      } else {
+        if (nextLife !== 0) {
+          nextLife = 0;
+          localStorage.setItem('jumpclimb_nextLife', '0');
+          setNextLifeTime(0);
+        }
       }
     };
 
@@ -441,14 +447,23 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
           }
         });
 
-        // Camera follow
+        // Camera follow - both up and down
         if (newY < CANVAS_HEIGHT / 3) {
+          // Player going up - move camera up
           const diff = CANVAS_HEIGHT / 3 - newY;
           setCameraY(prev => prev + diff);
           newY = CANVAS_HEIGHT / 3;
           
           // Shift platforms down
           setPlatforms(prev => prev.map(p => ({ ...p, y: p.y + diff })));
+        } else if (newY > CANVAS_HEIGHT * 2 / 3) {
+          // Player falling down - move camera down to follow
+          const diff = newY - CANVAS_HEIGHT * 2 / 3;
+          setCameraY(prev => prev - diff);
+          newY = CANVAS_HEIGHT * 2 / 3;
+          
+          // Shift platforms up
+          setPlatforms(prev => prev.map(p => ({ ...p, y: p.y - diff })));
         }
 
         // Update score and generate new platforms
@@ -891,9 +906,36 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
       lives: newLives,
       lastLifeUpdate: 0
     }).catch(err => console.log('Firebase sync failed:', err));
+    
+    // Auto-start the game after refill
+    resetGame();
   };
 
   const resetGame = () => {
+    // Check if player has lives
+    if (currentLives <= 0) {
+      setShowRefillModal(true);
+      return;
+    }
+    
+    // Consume a life
+    const newLives = currentLives - 1;
+    setCurrentLives(newLives);
+    localStorage.setItem('jumpclimb_lives', newLives.toString());
+    
+    // Start life refill timer if needed
+    if (newLives < MAX_LIVES && nextLifeTime === 0) {
+      const nextLife = Date.now() + LIFE_REFILL_MS;
+      setNextLifeTime(nextLife);
+      localStorage.setItem('jumpclimb_nextLife', nextLife.toString());
+    }
+    
+    // Sync to Firebase
+    firebaseStorage.updateJumpClimbProgress({
+      lives: newLives,
+      lastLifeUpdate: Date.now()
+    }).catch(err => console.log('Firebase sync failed:', err));
+    
     setGameState('playing');
     setScore(0);
     setHighestPlatform(0);

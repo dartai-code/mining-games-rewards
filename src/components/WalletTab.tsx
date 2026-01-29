@@ -3,6 +3,7 @@ import { Coins, TrendingUp, Clock, Pickaxe, Gamepad2, Users, CheckCircle } from 
 import { useWallet } from '../hooks/useWallet';
 import { BannerAd } from './BannerAd';
 import { LinkAccountBanner } from './LinkAccountBanner';
+import { RecoveryCodeDisplay } from './RecoveryCodeDisplay';
 
 const WalletTab: React.FC = () => {
   const { transactions, balance, formatDate } = useWallet();
@@ -28,6 +29,9 @@ const WalletTab: React.FC = () => {
 
         {/* Link Account Banner (for guest users) */}
         <LinkAccountBanner />
+
+        {/* Recovery Code Display */}
+        <RecoveryCodeDisplay />
 
         {/* Total Balance */}
         <div className="bg-gradient-to-r from-green-600 to-orange-600 rounded-2xl p-6">
