@@ -5,6 +5,7 @@ import ReferralsTab from './ReferralsTab';
 import TasksTab from './TasksTab';
 import WalletTab from './WalletTab';
 import LeaderboardTab from './LeaderboardTab';
+import ProfileTab from './ProfileTab';
 import BottomNavigation from './BottomNavigation';
 import UserSetupModal from './UserSetupModal';
 import { leaderboardService } from '../services/leaderboardService';
@@ -35,6 +36,7 @@ const AppLayout: React.FC = () => {
       case 'tasks': return <TasksTab />;
       case 'wallet': return <WalletTab />;
       case 'leaderboard': return <LeaderboardTab />;
+      case 'profile': return <ProfileTab />;
       default: return <HomeTab />;
     }
   };
