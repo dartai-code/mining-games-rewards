@@ -113,7 +113,7 @@ We may update this Privacy Policy periodically. Changes will be posted within th
 
 For privacy-related questions or concerns:
 
-**Email**: privacy@dartai.app  
+**Email**: dartaiofficial2@gmail.com  
 **Subject Line**: Privacy Policy Inquiry
 
 ## Legal Compliance
