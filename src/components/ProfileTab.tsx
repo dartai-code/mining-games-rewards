@@ -59,6 +59,16 @@ const ProfileTab: React.FC = () => {
     setIsEditing(false);
   };
 
+  const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setUsername(e.target.value);
+    setError('');
+  };
+
+  const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setCountry(e.target.value);
+    setError('');
+  };
+
   const formatDate = (timestamp: number) => {
     return new Date(timestamp).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -116,7 +126,7 @@ const ProfileTab: React.FC = () => {
                 <input
                   type="text"
                   value={username}
-                  onChange={(e) => { setUsername(e.target.value); setError(''); }}
+                  onChange={handleUsernameChange}
                   placeholder="Enter username"
                   maxLength={15}
                   className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:border-[#4ADE80] focus:outline-none"
@@ -129,7 +139,7 @@ const ProfileTab: React.FC = () => {
                 </label>
                 <select
                   value={country}
-                  onChange={(e) => { setCountry(e.target.value); setError(''); }}
+                  onChange={handleCountryChange}
                   className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:border-[#4ADE80] focus:outline-none"
                 >
                   <option value="">Select country</option>
