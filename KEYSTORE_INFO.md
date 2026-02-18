@@ -1,5 +1,16 @@
 # Keystore Information
 
+## ⚠️ SECURITY WARNING
+
+**This keystore and its password are currently committed to the repository and publicly exposed.**
+
+If this repository is public or if the keystore is used for production releases on Google Play Store, this is a critical security issue. The keystore should be:
+1. Removed from version control immediately
+2. A new keystore should be generated for production use
+3. Passwords should be stored securely (environment variables, CI/CD secrets, password managers)
+
+---
+
 ## Current Keystore Details
 
 **Keystore File Location:**
@@ -12,6 +23,8 @@ android/keystore.jks
 - **Key Alias:** `key0`
 
 **File Size:** 2.3 KB
+
+**Note:** These credentials are also documented in [GOOGLE_SIGNIN_FIX.md](GOOGLE_SIGNIN_FIX.md).
 
 ---
 
@@ -60,13 +73,15 @@ For detailed setup instructions, see:
 
 ---
 
-## Security Notes
+## Security Best Practices
 
 ⚠️ **IMPORTANT:**
-- **Never commit this keystore file to public repositories**
-- **Keep the password secure and private**
-- **Back up the keystore file in a secure location**
+- **Never commit keystore files to version control** (this keystore is already committed - see warning above)
+- **Keep passwords secure and private** (the password in this file is already exposed in the repository)
+- **Use environment variables or CI/CD secrets for passwords in production**
+- **Back up the keystore file in a secure, encrypted location**
 - If the keystore is lost, you cannot update the app on Google Play Store
+- **For production apps, generate a new keystore and keep it secure**
 
 ---
 
