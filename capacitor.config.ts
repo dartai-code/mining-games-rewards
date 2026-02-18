@@ -16,10 +16,10 @@ const config: CapacitorConfig = {
       spinnerColor: '#4ADE80'
     },
     AdMob: {
-      appId: 'ca-app-pub-5844068054295246~2712349629',
-      bannerAdId: 'ca-app-pub-5844068054295246/6013440009',
-      interstitialAdId: 'ca-app-pub-5844068054295246/9714648346',
-      rewardedAdId: 'ca-app-pub-5844068054295246/3209247149'
+      appId: 'ca-app-pub-7556351842925138~3225925254',
+      bannerAdId: 'ca-app-pub-7556351842925138/3633119361',
+      interstitialAdId: 'ca-app-pub-7556351842925138/5922670540',
+      rewardedAdId: 'ca-app-pub-7556351842925138/8749714676'
     },
     GoogleAuth: {
       scopes: ['profile', 'email'],

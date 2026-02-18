@@ -30,6 +30,16 @@ export const useWallet = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
+  // Dedupe + sort helper to avoid losing historical transactions when Firebase returns a limited set
+  const dedupeTransactions = (list: Transaction[]): Transaction[] => {
+    const map = new Map<string, Transaction>();
+    for (const tx of list) {
+      const key = tx.id ? String(tx.id) : `${tx.type}-${tx.timestamp}-${tx.amount}-${tx.note}`;
+      map.set(key, tx);
+    }
+    return Array.from(map.values()).sort((a, b) => b.timestamp - a.timestamp);
+  };
+
   // Load data from Firebase if logged in, otherwise use localStorage
   useEffect(() => {
     const loadData = async () => {
@@ -40,12 +50,12 @@ export const useWallet = () => {
         // User is logged in - load from Firebase
         try {
           const [firebaseTransactions, userData] = await Promise.all([
-            firebaseStorage.getUserTransactions(100),
+            firebaseStorage.getUserTransactions(500), // fetch more to avoid dropping older history
             firebaseStorage.getUserData()
           ]);
 
           // Convert Firebase transactions to local format
-          const localTransactions: Transaction[] = firebaseTransactions.map(tx => ({
+          const firebaseLocal: Transaction[] = firebaseTransactions.map(tx => ({
             id: parseInt(tx.id.substring(0, 13)) || Date.now(),
             type: tx.type,
             amount: tx.amount,
@@ -53,10 +63,16 @@ export const useWallet = () => {
             note: tx.note
           }));
 
-          setTransactions(localTransactions);
+          // Merge with any cached local transactions to preserve history
+          const cachedLocal: Transaction[] = JSON.parse(localStorage.getItem('transactions') || '[]');
+          const mergedTransactions = dedupeTransactions([...firebaseLocal, ...cachedLocal]);
+
+          setTransactions(mergedTransactions);
+          // Cache locally for offline/fallback UI
+          localStorage.setItem('transactions', JSON.stringify(mergedTransactions));
 
           // Calculate balance breakdown from transactions
-          const newBalance = localTransactions.reduce((acc: WalletBalance, tx: Transaction) => {
+          const newBalance = mergedTransactions.reduce((acc: WalletBalance, tx: Transaction) => {
             switch (tx.type) {
               case 'Mining':
                 acc.mining += tx.amount;
@@ -134,20 +150,24 @@ export const useWallet = () => {
   };
 
   const addTransaction = async (type: Transaction['type'], amount: number, note: string, game?: string) => {
+    console.log('useWallet: addTransaction called -', { type, amount, note, game });
     const userId = authService.getUserId();
+    console.log('useWallet: userId:', userId);
 
     // Save to Firebase if logged in
     if (userId) {
       try {
+        console.log('useWallet: Saving to Firebase...');
         await firebaseStorage.addTransaction(type, amount, note, game);
+        console.log('useWallet: Firebase save successful!');
         
         // Reload data from Firebase to stay in sync
         const [firebaseTransactions, userData] = await Promise.all([
-          firebaseStorage.getUserTransactions(100),
+          firebaseStorage.getUserTransactions(500),
           firebaseStorage.getUserData()
         ]);
 
-        const localTransactions: Transaction[] = firebaseTransactions.map(tx => ({
+        const firebaseLocal: Transaction[] = firebaseTransactions.map(tx => ({
           id: parseInt(tx.id.substring(0, 13)) || Date.now(),
           type: tx.type,
           amount: tx.amount,
@@ -155,10 +175,14 @@ export const useWallet = () => {
           note: tx.note
         }));
 
-        setTransactions(localTransactions);
+        // Merge with any cached local transactions to keep older history
+        const cachedLocal: Transaction[] = JSON.parse(localStorage.getItem('transactions') || '[]');
+        const mergedTransactions = dedupeTransactions([...firebaseLocal, ...cachedLocal]);
 
-        // Update balance from Firebase
-        const newBalance = localTransactions.reduce((acc: WalletBalance, tx: Transaction) => {
+        setTransactions(mergedTransactions);
+
+        // Update balance from merged list
+        const newBalance = mergedTransactions.reduce((acc: WalletBalance, tx: Transaction) => {
           switch (tx.type) {
             case 'Mining':
               acc.mining += tx.amount;
@@ -183,6 +207,8 @@ export const useWallet = () => {
         }
 
         setBalance(newBalance);
+        // Cache locally so Wallet tab can still render if a future Firebase read fails
+        localStorage.setItem('transactions', JSON.stringify(mergedTransactions));
         return;
       } catch (error) {
         console.error('Error saving to Firebase:', error);

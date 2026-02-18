@@ -27,7 +27,7 @@ export function AutomaticAdsModal({
       setAdsShown(0);
       setLoading(true);
       // Show first interstitial ad
-      showInterstitialAd();
+      showInterstitialAd(false);
     }
   }, [open, displayDuration]);
 
@@ -47,7 +47,7 @@ export function AutomaticAdsModal({
     return () => clearInterval(timer);
   }, [open, adsShown]);
 
-  const showInterstitialAd = async () => {
+  const showInterstitialAd = async (wasChained: boolean) => {
     try {
       await adService.showInterstitial();
       setAdsShown(prev => {
@@ -56,8 +56,8 @@ export function AutomaticAdsModal({
           // Both ads shown, start countdown
           setLoading(false);
         } else {
-          // Show second ad
-          setTimeout(() => showInterstitialAd(), 500);
+          // Chain second ad only after the first finishes
+          setTimeout(() => showInterstitialAd(true), 500);
         }
         return newCount;
       });
@@ -68,7 +68,7 @@ export function AutomaticAdsModal({
         if (newCount === 2) {
           setLoading(false);
         } else {
-          setTimeout(() => showInterstitialAd(), 500);
+          setTimeout(() => showInterstitialAd(true), 500);
         }
         return newCount;
       });

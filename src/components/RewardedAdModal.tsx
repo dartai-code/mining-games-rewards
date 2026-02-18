@@ -98,18 +98,15 @@ export function RewardedAdModal({
 
           {adReady && !error && (
             <div className="space-y-4">
-              <div className="bg-gradient-to-r from-purple-500/20 to-blue-500/20 p-4 rounded-lg border border-purple-500/30">
-                <p className="text-sm text-center text-white">{title}</p>
-              </div>
               <Button onClick={handleWatchAd} className="w-full bg-purple-600 hover:bg-purple-700" size="lg">
-                <Gift className="w-4 h-4 mr-2" />{title}
+                <Gift className="w-4 h-4 mr-2" />Get 2x Reward
               </Button>
             </div>
           )}
         </div>
 
         <div className="flex justify-end">
-          <Button variant="ghost" onClick={onClose} className="text-gray-400">Cancel</Button>
+          <Button variant="ghost" onClick={onClose} className="text-gray-400">Skip</Button>
         </div>
       </DialogContent>
     </Dialog>

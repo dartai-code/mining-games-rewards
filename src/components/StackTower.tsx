@@ -1,13 +1,13 @@
 // src/components/StackTower.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Trophy, RotateCcw, Heart } from 'lucide-react';
-import SoundToggle from './SoundToggle';
 import { useNavigate } from 'react-router-dom';
 import { useWallet } from '../hooks/useWallet';
 import { leaderboardService } from '../services/leaderboardService';
 import { firebaseStorage } from '../services/firebaseStorageService';
 import { RewardedAdModal } from './RewardedAdModal';
 import { BannerAd } from './BannerAd';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
 
 interface StackTowerProps {
   onGameComplete?: (score: number) => void;
@@ -32,10 +32,6 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
   const { addTransaction } = useWallet();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
-  // Sound effects - use relative paths for Capacitor
-  const failSound = useRef(new Audio('./sounds/fail.mp3'));
-  const placeSound = useRef(new Audio('./sounds/place.mp3'));
-  
   const [gameState, setGameState] = useState<'playing' | 'gameover'>('playing');
   const [score, setScore] = useState(0);
   const [blocks, setBlocks] = useState<Block[]>([
@@ -56,8 +52,6 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
     const lives = stored ? parseInt(stored, 10) : MAX_LIVES;
     return Math.min(MAX_LIVES, Math.max(0, isNaN(lives) ? MAX_LIVES : lives));
   });
-  const audioInitialized = useRef<boolean>(false);
-  
   const [nextLifeTime, setNextLifeTime] = useState<number>(() => {
     const stored = localStorage.getItem('stacktower_nextLife');
     return stored ? parseInt(stored, 10) : 0;
@@ -66,37 +60,20 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
   const animationRef = useRef<number>();
   const gameLoopRef = useRef<() => void>();
 
-  // Initialize audio
+  // Refs for current state in game loop
+  const blocksRef = useRef(blocks);
+  const currentBlockRef = useRef(currentBlock);
+  const scoreRef = useRef(score);
+  const cameraOffsetRef = useRef(cameraOffset);
+  
   useEffect(() => {
-    const initAudio = () => {
-      if (audioInitialized.current) return;
-      
-      // Set volume and preload
-      failSound.current.volume = 0.5;
-      failSound.current.load();
-      placeSound.current.volume = 0.6;
-      placeSound.current.load();
-      
-      audioInitialized.current = true;
-    };
+    blocksRef.current = blocks;
+    currentBlockRef.current = currentBlock;
+    scoreRef.current = score;
+    cameraOffsetRef.current = cameraOffset;
+  }, [blocks, currentBlock, score, cameraOffset]);
 
-    // Initialize on first touch/click
-    const handleFirstInteraction = () => {
-      initAudio();
-      document.removeEventListener('touchstart', handleFirstInteraction);
-      document.removeEventListener('click', handleFirstInteraction);
-    };
-
-    document.addEventListener('touchstart', handleFirstInteraction);
-    document.addEventListener('click', handleFirstInteraction);
-    
-    return () => {
-      document.removeEventListener('touchstart', handleFirstInteraction);
-      document.removeEventListener('click', handleFirstInteraction);
-    };
-  }, []);
-
-  // Game loop
+  // Game loop with integrated drawing
   useEffect(() => {
     if (gameState !== 'playing') return;
 
@@ -115,6 +92,9 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
         return { ...prev, x: newX };
       });
 
+      // Draw canvas in the same loop
+      drawCanvas();
+
       animationRef.current = requestAnimationFrame(gameLoopRef.current!);
     };
 
@@ -127,13 +107,18 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
     };
   }, [gameState, direction]);
 
-  // Draw canvas
-  useEffect(() => {
+  // Draw function (called from game loop)
+  const drawCanvas = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    const currentBlocks = blocksRef.current;
+    const currentMovingBlock = currentBlockRef.current;
+    const currentScore = scoreRef.current;
+    const currentCameraOffset = cameraOffsetRef.current;
 
     // Clear canvas
     ctx.fillStyle = '#1e293b';
@@ -141,18 +126,18 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
 
     // Calculate camera offset to keep top blocks visible
     // Start scrolling when blocks go beyond 70% of screen height
-    const totalHeight = (blocks.length + 1) * BLOCK_HEIGHT;
+    const totalHeight = (currentBlocks.length + 1) * BLOCK_HEIGHT;
     const maxVisibleHeight = 600 * 0.7; // 70% of canvas height
     const newCameraOffset = Math.max(0, totalHeight - maxVisibleHeight);
     
     // Update camera offset for smooth scrolling
-    if (newCameraOffset !== cameraOffset) {
+    if (newCameraOffset !== currentCameraOffset) {
       setCameraOffset(newCameraOffset);
     }
 
     // Draw stacked blocks with camera offset
-    blocks.forEach((block, index) => {
-      const y = 600 - (index + 1) * BLOCK_HEIGHT + cameraOffset;
+    currentBlocks.forEach((block, index) => {
+      const y = 600 - (index + 1) * BLOCK_HEIGHT + currentCameraOffset;
       
       // Only draw blocks that are visible on screen
       if (y + BLOCK_HEIGHT >= 0 && y <= 600) {
@@ -172,28 +157,27 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
 
     // Draw current block with camera offset
     if (gameState === 'playing') {
-      const y = 600 - (blocks.length + 1) * BLOCK_HEIGHT + cameraOffset;
+      const y = 600 - (currentBlocks.length + 1) * BLOCK_HEIGHT + currentCameraOffset;
       
       // Shadow
       ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-      ctx.fillRect(currentBlock.x + 3, y + 3, currentBlock.width, BLOCK_HEIGHT);
+      ctx.fillRect(currentMovingBlock.x + 3, y + 3, currentMovingBlock.width, BLOCK_HEIGHT);
       
       // Block
-      ctx.fillStyle = currentBlock.color;
-      ctx.fillRect(currentBlock.x, y, currentBlock.width, BLOCK_HEIGHT);
+      ctx.fillStyle = currentMovingBlock.color;
+      ctx.fillRect(currentMovingBlock.x, y, currentMovingBlock.width, BLOCK_HEIGHT);
       
       // Highlight
       ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-      ctx.fillRect(currentBlock.x, y, currentBlock.width, 10);
+      ctx.fillRect(currentMovingBlock.x, y, currentMovingBlock.width, 10);
     }
 
     // Draw score
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 24px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(`${score}`, 200, 40);
-
-  }, [blocks, currentBlock, gameState, score, cameraOffset]);
+    ctx.fillText(`${currentScore}`, 200, 40);
+  };
 
   // Lives refill timer
   useEffect(() => {
@@ -249,37 +233,30 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
     const overlap = calculateOverlap(lastBlock, currentBlock);
 
     if (overlap <= 0) {
-      // Game over - play fail sound if not muted
+      // Game over - long vibration
       try {
-        const muted = localStorage.getItem('game_sounds_muted') === 'true';
-        if (!muted) {
-          failSound.current.currentTime = 0;
-          failSound.current.volume = 0.5;
-          failSound.current.play().catch(e => console.log('Sound play failed:', e));
-        }
-      } catch (e) {
-        console.log('Fail sound error:', e);
-      }
+        Haptics.impact({ style: ImpactStyle.Heavy });
+        setTimeout(() => Haptics.impact({ style: ImpactStyle.Medium }), 100);
+      } catch (e) {}
 
       endGame();
       return;
     }
 
-    // Play place sound for successful placement
-    // Play place sound for successful placement if not muted
+    // Light vibration for successful placement
     try {
-      const muted = localStorage.getItem('game_sounds_muted') === 'true';
-      if (!muted) {
-        placeSound.current.currentTime = 0;
-        placeSound.current.volume = 0.6;
-        placeSound.current.play().catch((e: any) => console.log('Place sound failed:', e));
-      }
-    } catch (e) {
-      console.log('Place sound error:', e);
-    }
+      Haptics.impact({ style: ImpactStyle.Light });
+    } catch (e) {}
 
     // Check if it's a perfect match
     const isPerfect = Math.abs(overlap - lastBlock.width) < 2;
+    
+    // Medium vibration for perfect placement
+    if (isPerfect) {
+      try {
+        Haptics.impact({ style: ImpactStyle.Medium });
+      } catch (e) {}
+    }
 
     // Calculate new block dimensions
     const newX = Math.max(lastBlock.x, currentBlock.x);
@@ -311,10 +288,13 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
   };
 
   const endGame = () => {
+    const currentScore = scoreRef.current;
+    console.log('StackTower: Game Over! Score:', currentScore);
     setGameState('gameover');
     // Only award darts for complete sets of 5 blocks (1 dart per block)
-    const completedSets = Math.floor(score / 5);
+    const completedSets = Math.floor(currentScore / 5);
     const dartPoints = completedSets * 5;
+    console.log('StackTower: Dart points calculated:', dartPoints, '(completedSets:', completedSets, ')');
     setFinalScore(dartPoints);
 
     // Consume a life
@@ -336,9 +316,11 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
     }).catch(err => console.log('Firebase sync failed:', err));
 
     if (dartPoints > 0) {
-      addTransaction('Game', dartPoints, `Stack Tower score: ${score}`, 'stack-tower');
+      console.log('StackTower: Adding', dartPoints, 'darts to wallet');
+      addTransaction('Game', dartPoints, `Stack Tower score: ${currentScore}`, 'stack-tower');
       
       const userProfile = leaderboardService.getUserProfile();
+      console.log('StackTower: User profile:', userProfile);
       if (userProfile) {
         leaderboardService.addScore(userProfile.username, userProfile.country, dartPoints, 'stack-tower');
         
@@ -354,21 +336,21 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
 
     // Update high score
     const gameStateData = JSON.parse(localStorage.getItem('gameState') || '{}');
-    if (score > (gameStateData.highScores?.stackTower || 0)) {
+    if (currentScore > (gameStateData.highScores?.stackTower || 0)) {
       gameStateData.highScores = gameStateData.highScores || {};
-      gameStateData.highScores.stackTower = score;
+      gameStateData.highScores.stackTower = currentScore;
       localStorage.setItem('gameState', JSON.stringify(gameStateData));
       
       // Sync high score to Firebase
       firebaseStorage.updateStackTowerProgress({
-        highScore: score
+        highScore: currentScore
       }).catch(err => console.log('Firebase sync failed:', err));
     }
 
     setShowAdModal(true);
 
     if (onGameComplete) {
-      onGameComplete(score);
+      onGameComplete(currentScore);
     }
   };
 
@@ -378,25 +360,7 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
       setShowRefillAdModal(true);
       return;
     }
-    
-    // Consume a life
-    const newLives = currentLives - 1;
-    setCurrentLives(newLives);
-    localStorage.setItem('stacktower_lives', newLives.toString());
-    
-    // Start life refill timer if needed
-    if (newLives < MAX_LIVES && nextLifeTime === 0) {
-      const nextLife = Date.now() + LIFE_REFILL_MS;
-      setNextLifeTime(nextLife);
-      localStorage.setItem('stacktower_nextLife', nextLife.toString());
-    }
-    
-    // Sync to Firebase
-    firebaseStorage.updateStackTowerProgress({
-      lives: newLives,
-      lastLifeUpdate: Date.now()
-    }).catch(err => console.log('Firebase sync failed:', err));
-    
+
     setGameState('playing');
     setScore(0);
     setBlocks([{ x: 140, width: INITIAL_WIDTH, color: COLORS[0] }]);
@@ -407,7 +371,32 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
   };
 
   const handleAdReward = () => {
+    const currentScore = scoreRef.current;
+    // Award 2x bonus darts
+    const bonusDarts = finalScore; // Additional bonus points (same as base)
+    console.log('StackTower: Reward ad watched! Adding bonus:', bonusDarts, 'darts');
+    if (bonusDarts > 0) {
+      addTransaction('Game', bonusDarts, `Stack Tower - ${currentScore} blocks (2x Bonus)`, 'stack-tower');
+      
+      const userProfile = leaderboardService.getUserProfile();
+      if (userProfile) {
+        leaderboardService.addScore(userProfile.username, userProfile.country, bonusDarts, 'stack-tower');
+        
+        // Sync to Firebase leaderboard
+        firebaseStorage.addLeaderboardScore(bonusDarts, 'stack-tower', 'daily')
+          .catch(err => console.log('Leaderboard Firebase sync failed:', err));
+        firebaseStorage.addLeaderboardScore(bonusDarts, 'stack-tower', 'weekly')
+          .catch(err => console.log('Leaderboard Firebase sync failed:', err));
+        firebaseStorage.addLeaderboardScore(bonusDarts, 'stack-tower', 'monthly')
+          .catch(err => console.log('Leaderboard Firebase sync failed:', err));
+      }
+    }
+    
     setShowAdModal(false);
+    
+    if (onGameComplete) {
+      onGameComplete(currentScore);
+    }
   };
 
   const handleLifeRefillAd = () => {
@@ -466,7 +455,6 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
               )}
             </div>
           </div>
-          <SoundToggle />
           <button
             onClick={resetGame}
             className="p-2 hover:bg-slate-700 rounded-lg"
@@ -548,8 +536,8 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
         open={showAdModal}
         onClose={() => setShowAdModal(false)}
         onRewardGranted={handleAdReward}
-        title="Bonus Reward"
-        description="Watch an ad to double your Darts!"
+        title="Double Your Darts!"
+        description={finalScore > 0 ? `You earned ${finalScore} Darts! Watch an ad to earn ${finalScore} MORE (${finalScore * 2} total)!` : `No Darts earned. Reach 5 blocks to earn rewards!`}
       />
 
       {/* Life Refill Ad Modal */}
@@ -558,13 +546,9 @@ const StackTower: React.FC<StackTowerProps> = ({ onGameComplete }) => {
         onClose={() => setShowRefillAdModal(false)}
         onRewardGranted={handleLifeRefillAd}
         title="Refill All Lives"
-        description="Watch an ad to refill all 3 lives!"
+        description={`Watch an ad to refill all ${MAX_LIVES} lives!`}
       />
 
-      {/* Banner Ad */}
-      <div className="fixed bottom-20 left-0 right-0 px-4">
-        <BannerAd />
-      </div>
     </div>
   );
 };

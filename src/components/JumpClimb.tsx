@@ -1,7 +1,6 @@
 // src/components/JumpClimb.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Trophy, RotateCcw, Heart } from 'lucide-react';
-import SoundToggle from './SoundToggle';
 import { useNavigate } from 'react-router-dom';
 import { useWallet } from '../hooks/useWallet';
 import { leaderboardService } from '../services/leaderboardService';
@@ -18,6 +17,7 @@ interface Platform {
   y: number;
   width: number;
   color: string;
+  floorNumber: number; // Floor number (0 = ground, 1+)
   hasGate?: boolean;
   gateOpenLeft?: boolean;
   bombExploded?: boolean;
@@ -42,33 +42,77 @@ const CANVAS_HEIGHT = 600;
 const PLAYER_SIZE = 30;
 const PLATFORM_HEIGHT = 15;
 const GRAVITY = 0.65;
-const JUMP_FORCE = -11.5;
-const PLAYER_SPEED = 5;
+const JUMP_FORCE = -11.5;  // Adjusted for single floor jump (90px gap)
+const PLAYER_SPEED = 7;
 const INITIAL_PLATFORM_WIDTH = 100;
 const MIN_PLATFORM_WIDTH = 35;
-const PLATFORM_GAP = 90; // Bigger gap between platforms
-const PLATFORM_SPEED = 1.5; // Platform horizontal movement speed
+const PLATFORM_GAP = 90;
+const PLATFORM_SPEED = 1.5;
 const MAX_LIVES = 10;
 const LIFE_REFILL_MS = 5 * 60 * 1000; // 5 minutes
+const GROUND_Y = 380; // Ground platform Y position
+const PLAYER_START_Y = 350; // Player starts 30px above ground (PLAYER_SIZE)
+const TRAP_REVEAL_DISTANCE = 80; // Distance at which traps become visible
+const PLATFORM_CLEANUP_MULTIPLIER = 3; // How many screens worth of platforms to keep
+const FALL_OFF_DISTANCE = 300; // Distance below platforms before game over
 
 const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
   const navigate = useNavigate();
   const { addTransaction } = useWallet();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
-  // Sound effects - use relative paths for Capacitor
-  const failSound = useRef(new Audio('./sounds/fail.mp3'));
-  const jumpSound = useRef(new Audio('./sounds/jump.mp3'));
-  
   const [gameState, setGameState] = useState<'playing' | 'gameover'>('playing');
   const [score, setScore] = useState(0);
   const [highestPlatform, setHighestPlatform] = useState(0);
   const [checkpoint, setCheckpoint] = useState(0);
   
-  const [platforms, setPlatforms] = useState<Platform[]>([]);
+  // Initialize platforms with full set immediately to prevent falling
+  const [platforms, setPlatforms] = useState<Platform[]>(() => {
+    const initialPlatforms: Platform[] = [];
+    
+    // Ground platform (static, no movement) - positioned in stable camera view
+    initialPlatforms.push({
+      x: 0,
+      y: GROUND_Y,
+      width: CANVAS_WIDTH,
+      color: '#10b981',
+      floorNumber: 0,
+      velocityX: 0,
+      direction: 0
+    });
+
+    // Generate initial platforms
+    for (let i = 1; i < 20; i++) {
+      const width = Math.max(MIN_PLATFORM_WIDTH, INITIAL_PLATFORM_WIDTH - i * 3);
+      const hasGate = i > 15 && Math.random() < 0.4;
+      const floorMod = i % 10;
+      const hasTrap = !hasGate && (floorMod === 0 || floorMod === 1 || floorMod === 2);
+      const trapWidth = hasTrap ? Math.min(width * 0.4, 25) : 0;
+      const trapX = hasTrap ? Math.random() * (width - trapWidth) : 0;
+      
+      initialPlatforms.push({
+        x: Math.random() * (CANVAS_WIDTH - width),
+        y: GROUND_Y - i * PLATFORM_GAP,
+        width,
+        color: `hsl(${200 + i * 10}, 70%, 60%)`,
+        floorNumber: i,
+        hasGate: hasGate,
+        gateOpenLeft: hasGate ? Math.random() < 0.5 : undefined,
+        hasTrap: hasTrap,
+        trapRevealed: false,
+        trapX: trapX,
+        trapWidth: trapWidth,
+        velocityX: PLATFORM_SPEED,
+        direction: Math.random() < 0.5 ? 1 : -1
+      });
+    }
+    
+    return initialPlatforms;
+  });
+  
   const [player, setPlayer] = useState<Player>({
     x: CANVAS_WIDTH / 2 - PLAYER_SIZE / 2,
-    y: CANVAS_HEIGHT - 150,
+    y: PLAYER_START_Y,
     velocityY: 0,
     isJumping: false
   });
@@ -96,55 +140,36 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
   const keysPressed = useRef<Set<string>>(new Set());
   const touchStartX = useRef<number>(0);
   const touchStartY = useRef<number>(0);
+  const touchDirection = useRef<'left' | 'right' | 'none'>('none'); // Track swipe direction
+  const framesSinceJump = useRef<number>(100); // Frames since last jump (start high to allow initial landing)
   const isSwiping = useRef<boolean>(false);
-  const audioInitialized = useRef<boolean>(false);
+  const jumpStartY = useRef<number>(PLAYER_START_Y); // Track Y position where jump started
+  const lastLandedFloorRef = useRef<number>(0); // Track last floor that updated score
 
-  // Initialize audio
-  useEffect(() => {
-    const initAudio = () => {
-      if (audioInitialized.current) return;
-      
-      // Set volume and preload
-      failSound.current.volume = 0.5;
-      failSound.current.load();
-
-      // Jump sound
-      jumpSound.current.volume = 0.6;
-      jumpSound.current.load();
-      
-      audioInitialized.current = true;
-    };
-
-    // Initialize on first touch/click
-    const handleFirstInteraction = () => {
-      initAudio();
-      document.removeEventListener('touchstart', handleFirstInteraction);
-      document.removeEventListener('click', handleFirstInteraction);
-    };
-
-    document.addEventListener('touchstart', handleFirstInteraction);
-    document.addEventListener('click', handleFirstInteraction);
+  // Sound playing function
+  const playSound = (soundName: string) => {
+    const muted = localStorage.getItem('game_sounds_muted') === 'true';
+    if (muted) return;
     
-    return () => {
-      document.removeEventListener('touchstart', handleFirstInteraction);
-      document.removeEventListener('click', handleFirstInteraction);
-    };
-  }, []);
-
-  // Initialize platforms
-  useEffect(() => {
-    initializeGame();
-  }, []);
+    try {
+      const audio = new Audio(`/sounds/${soundName}.mp3`);
+      audio.volume = 0.3;
+      audio.play().catch(err => console.log('Sound play failed:', err));
+    } catch (err) {
+      console.log('Sound load failed:', err);
+    }
+  };
 
   const initializeGame = () => {
     const initialPlatforms: Platform[] = [];
     
-    // Ground platform (static, no movement)
+    // Ground platform (static, no movement) - positioned in stable camera view
     initialPlatforms.push({
       x: 0,
-      y: CANVAS_HEIGHT - 50,
+      y: GROUND_Y,
       width: CANVAS_WIDTH,
       color: '#10b981',
+      floorNumber: 0,
       velocityX: 0,
       direction: 0
     });
@@ -162,9 +187,10 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
       
       initialPlatforms.push({
         x: Math.random() * (CANVAS_WIDTH - width),
-        y: CANVAS_HEIGHT - 50 - i * PLATFORM_GAP,
+        y: GROUND_Y - i * PLATFORM_GAP,
         width,
         color: `hsl(${200 + i * 10}, 70%, 60%)`,
+        floorNumber: i,
         hasGate: hasGate,
         gateOpenLeft: hasGate ? Math.random() < 0.5 : undefined,
         hasTrap: hasTrap,
@@ -177,6 +203,8 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
     }
 
     setPlatforms(initialPlatforms);
+    setScore(0);
+    setHighestPlatform(0);
   };
 
   // Lives refill timer
@@ -230,7 +258,7 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       keysPressed.current.add(e.key);
-      if (e.key === ' ' && gameState === 'playing' && !player.isJumping) {
+      if (e.key === ' ') {
         jump();
       }
     };
@@ -244,7 +272,7 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [gameState, player.isJumping]);
+  }, [gameState]);
 
   // Touch/Swipe controls for mobile
   useEffect(() => {
@@ -269,18 +297,12 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
       if (Math.abs(deltaX) > 10) {
         isSwiping.current = true;
         
-        // Move player based on swipe direction
-        setPlayer(prev => {
-          let newX = prev.x;
-          if (deltaX > 0) {
-            // Swipe right
-            newX = Math.min(CANVAS_WIDTH - PLAYER_SIZE, prev.x + PLAYER_SPEED);
-          } else {
-            // Swipe left
-            newX = Math.max(0, prev.x - PLAYER_SPEED);
-          }
-          return { ...prev, x: newX };
-        });
+        // Set direction for game loop to read
+        if (deltaX > 0) {
+          touchDirection.current = 'right';
+        } else {
+          touchDirection.current = 'left';
+        }
       }
     };
 
@@ -295,6 +317,7 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
       }
       
       isSwiping.current = false;
+      touchDirection.current = 'none'; // Reset direction
     };
 
     canvas.addEventListener('touchstart', handleTouchStart);
@@ -306,15 +329,44 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
       canvas.removeEventListener('touchmove', handleTouchMove);
       canvas.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [gameState, player.isJumping]);
+  }, [gameState]);
 
-  // Game loop
+  // Refs for current state in game loop
+  const platformsRef = useRef(platforms);
+  const playerRef = useRef(player);
+  const scoreRef = useRef(score);
+  const cameraYRef = useRef(cameraY);
+  const highestPlatformRef = useRef(highestPlatform);
+  const gameStateRef = useRef(gameState);
+  
+  useEffect(() => {
+    platformsRef.current = platforms;
+    playerRef.current = player;
+    scoreRef.current = score;
+    cameraYRef.current = cameraY;
+    // DON'T update highestPlatformRef here - it's managed directly in game loop
+    // highestPlatformRef.current = highestPlatform;
+  }, [platforms, player, score, cameraY]);
+
+  useEffect(() => {
+    gameStateRef.current = gameState;
+  }, [gameState]);
+
+  // Game loop with integrated drawing
   useEffect(() => {
     if (gameState !== 'playing') return;
+    
+    // Ensure refs are initialized before starting game loop
+    if (!platformsRef.current || platformsRef.current.length === 0 || !playerRef.current) return;
 
     const gameLoop = () => {
-      // Move platforms horizontally
-      setPlatforms(prev => prev.map(platform => {
+      // Use refs for current state to avoid re-renders
+      const currentPlatforms = platformsRef.current;
+      const currentPlayer = playerRef.current;
+      let endGameScheduled = false;
+      
+      // Update both platforms and player state together to avoid race conditions
+      let updatedPlatforms = currentPlatforms.map(platform => {
         if (platform.velocityX === 0 || platform.direction === 0) return platform; // Skip static platforms
         
         let newX = platform.x + (platform.velocityX! * platform.direction!);
@@ -330,59 +382,75 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
         }
         
         return { ...platform, x: newX, direction: newDirection };
-      }));
+      });
       
-      setPlayer(prev => {
-        let newX = prev.x;
-        let newY = prev.y + prev.velocityY;
-        let newVelocityY = prev.velocityY + GRAVITY;
-        let newIsJumping = prev.isJumping;
-        let standingPlatform: Platform | null = null;
+      // Calculate new player position
+      let newX = currentPlayer.x;
+      let newY = currentPlayer.y + currentPlayer.velocityY;
+      let newVelocityY = currentPlayer.velocityY + GRAVITY;
+      let newIsJumping = currentPlayer.isJumping;
+      let shouldEndGame = false;
+      let landedPlatform: Platform | null = null;  // Reset every frame - prevents unwanted platform movement
+      
+      // Track frames since jump to prevent immediate re-landing
+      framesSinceJump.current++;
 
-        // Check if player is standing on a platform (before applying horizontal movement)
-        platforms.forEach(platform => {
-          if (
-            prev.velocityY >= 0 &&
-            Math.abs((prev.y + PLAYER_SIZE) - platform.y) < 3 &&
-            prev.x + PLAYER_SIZE > platform.x &&
-            prev.x < platform.x + platform.width
-          ) {
-            standingPlatform = platform;
-          }
-        });
+      // Horizontal movement
+      if (keysPressed.current.has('ArrowLeft') || keysPressed.current.has('a') || touchDirection.current === 'left') {
+        newX = Math.max(0, newX - PLAYER_SPEED);
+      }
+      if (keysPressed.current.has('ArrowRight') || keysPressed.current.has('d') || touchDirection.current === 'right') {
+        newX = Math.min(CANVAS_WIDTH - PLAYER_SIZE, newX + PLAYER_SPEED);
+      }
 
-        // If standing on a moving platform, move with it
-        if (standingPlatform && standingPlatform.velocityX && standingPlatform.direction) {
-          const platformMovement = standingPlatform.velocityX * standingPlatform.direction;
-          newX = prev.x + platformMovement;
-          // Keep player within canvas bounds
-          newX = Math.max(0, Math.min(CANVAS_WIDTH - PLAYER_SIZE, newX));
-        }
-
-        // Horizontal movement
-        if (keysPressed.current.has('ArrowLeft') || keysPressed.current.has('a')) {
-          newX = Math.max(0, newX - PLAYER_SPEED);
-        }
-        if (keysPressed.current.has('ArrowRight') || keysPressed.current.has('d')) {
-          newX = Math.min(CANVAS_WIDTH - PLAYER_SIZE, newX + PLAYER_SPEED);
-        }
-
-        // Platform collision
-        platforms.forEach((platform, idx) => {
-          // Reveal trap if player is close (within 80 pixels vertically)
-          if (platform.hasTrap && !platform.trapRevealed && Math.abs(newY - platform.y) < 80) {
-            setPlatforms(prev => prev.map((p, i) => 
+      // Platform collision - SIMPLIFIED
+      let nearestPlatform: { platform: Platform; idx: number } | null = null;
+      let nearestDistance = Infinity;
+      
+      updatedPlatforms.forEach((platform, idx) => {
+          // Reveal trap if player is close
+          if (platform.hasTrap && !platform.trapRevealed && Math.abs(newY - platform.y) < TRAP_REVEAL_DISTANCE) {
+            updatedPlatforms = updatedPlatforms.map((p, i) => 
               i === idx ? { ...p, trapRevealed: true } : p
-            ));
+            );
           }
           
+          // Landing detection - Crossing detection (works even when falling fast)
+          const oldPlayerBottom = currentPlayer.y + PLAYER_SIZE;
+          const playerBottom = newY + PLAYER_SIZE;
+          const platformTop = platform.y;
+          const onPlatformHorizontally = newX + PLAYER_SIZE > platform.x && newX < platform.x + platform.width;
+          
+          // Detect if player CROSSED the platform top between frames
+          // This works even when falling at high speed
+          const wasClearlyAbove = oldPlayerBottom < platformTop - 10; // Was well above platform
+          const isNowAtOrBelow = playerBottom >= platformTop - 5;     // Now at or below platform top
+          const crossedPlatform = wasClearlyAbove && isNowAtOrBelow;
+          
+          // Allow landing if:
+          // 1. Waited 10 frames since jump (prevents re-landing on same platform)
+          // 2. Falling down
+          // 3. Crossed the platform top OR is close to it
+          // 4. Horizontally aligned with platform
           if (
-            newVelocityY > 0 &&
-            prev.y + PLAYER_SIZE <= platform.y &&
-            newY + PLAYER_SIZE >= platform.y &&
-            newX + PLAYER_SIZE > platform.x &&
-            newX < platform.x + platform.width
+            framesSinceJump.current > 10 &&
+            newVelocityY >= 0 &&
+            (crossedPlatform || (oldPlayerBottom <= platformTop + 20 && playerBottom >= platformTop - 5 && playerBottom <= platformTop + 30)) &&
+            onPlatformHorizontally
           ) {
+            // Find the NEAREST platform (closest one wins)
+            const distance = Math.abs(platformTop - playerBottom);
+            if (distance < nearestDistance) {
+              nearestDistance = distance;
+              nearestPlatform = { platform, idx };
+            }
+          }
+        });
+      
+      // Process collision with nearest platform only
+      if (nearestPlatform) {
+        const platform = nearestPlatform.platform;
+        const idx = nearestPlatform.idx;
             // Check if player landed on a trap
             if (platform.hasTrap && platform.trapX !== undefined && platform.trapWidth !== undefined) {
               const playerCenter = newX + PLAYER_SIZE / 2;
@@ -391,16 +459,17 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
               
               if (playerCenter >= trapAbsoluteX && playerCenter <= trapAbsoluteEndX) {
                 // Player landed on trap - activate it visually!
-                setPlatforms(prev => prev.map((p, i) => 
+                updatedPlatforms = updatedPlatforms.map((p, i) => 
                   i === idx ? { ...p, trapActivated: true, trapRevealed: true } : p
-                ));
+                );
                 setTrapActivatedIndex(idx);
+                shouldEndGame = true;
+                endGameScheduled = true;
                 
-                // Small delay to show trap activation before game over
+                // End game after visual feedback
                 setTimeout(() => {
                   endGame();
                 }, 300);
-                return;
               }
             }
             
@@ -414,90 +483,116 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
                 // Bomb on right side, player must be on left
                 if (playerCenter > platformCenter) {
                   // Player hit the bomb, trigger explosion!
-                  setPlatforms(prev => prev.map((p, i) => 
+                  updatedPlatforms = updatedPlatforms.map((p, i) => 
                     i === idx ? { ...p, bombExploded: true } : p
-                  ));
+                  );
+                  shouldEndGame = true;
+                  endGameScheduled = true;
                   
-                  // Small delay to show explosion before game over
+                  // End game after explosion animation
                   setTimeout(() => {
                     endGame();
                   }, 400);
-                  return;
                 }
               } else {
                 // Bomb on left side, player must be on right
                 if (playerCenter < platformCenter) {
                   // Player hit the bomb, trigger explosion!
-                  setPlatforms(prev => prev.map((p, i) => 
+                  updatedPlatforms = updatedPlatforms.map((p, i) => 
                     i === idx ? { ...p, bombExploded: true } : p
-                  ));
+                  );
+                  shouldEndGame = true;
+                  endGameScheduled = true;
                   
-                  // Small delay to show explosion before game over
+                  // End game after explosion animation
                   setTimeout(() => {
                     endGame();
                   }, 400);
-                  return;
                 }
               }
             }
             
-            newY = platform.y - PLAYER_SIZE;
-            newVelocityY = 0;
-            newIsJumping = false;
-          }
-        });
+            // Only land if not hitting trap/bomb
+            if (!shouldEndGame) {
+              newY = platform.y - PLAYER_SIZE;
+              newVelocityY = 0;
+              newIsJumping = false;
+              landedPlatform = platform; // Track which platform we landed on
+              jumpStartY.current = newY; // Update jump start for next jump
+            }
+      }
+
+      // Move with platform ONLY if landed this frame (before bounds check)
+      if (landedPlatform && landedPlatform.velocityX && landedPlatform.direction) {
+        const platformMovement = landedPlatform.velocityX * landedPlatform.direction;
+        newX = Math.max(0, Math.min(CANVAS_WIDTH - PLAYER_SIZE, newX + platformMovement));
+      }
+
+      // Safety: Never fall below ground platform (floor 0)
+      // Use the actual ground platform Y (it moves when the camera scrolls)
+      const groundPlatform = updatedPlatforms.find(p => p.floorNumber === 0);
+      const effectiveGroundY = groundPlatform?.y ?? GROUND_Y;
+
+      if (newY + PLAYER_SIZE > effectiveGroundY) {
+        newY = effectiveGroundY - PLAYER_SIZE;
+        newVelocityY = 0;
+        newIsJumping = false;
+        jumpStartY.current = newY; // Update for next jump
+      }
+
+      // Player continues falling until lands on a platform or hits ground
+      // No artificial fall detection - let physics work naturally
 
         // Camera follow - both up and down
+        let cameraUpdated = false;
         if (newY < CANVAS_HEIGHT / 3) {
           // Player going up - move camera up
           const diff = CANVAS_HEIGHT / 3 - newY;
-          setCameraY(prev => prev + diff);
+          setCameraY(cameraYRef.current + diff);
           newY = CANVAS_HEIGHT / 3;
-          
-          // Shift platforms down
-          setPlatforms(prev => prev.map(p => ({ ...p, y: p.y + diff })));
+          updatedPlatforms = updatedPlatforms.map(p => ({ ...p, y: p.y + diff }));
+          cameraUpdated = true;
         } else if (newY > CANVAS_HEIGHT * 2 / 3) {
           // Player falling down - move camera down to follow
           const diff = newY - CANVAS_HEIGHT * 2 / 3;
-          setCameraY(prev => prev - diff);
+          setCameraY(cameraYRef.current - diff);
           newY = CANVAS_HEIGHT * 2 / 3;
-          
-          // Shift platforms up
-          setPlatforms(prev => prev.map(p => ({ ...p, y: p.y - diff })));
+          updatedPlatforms = updatedPlatforms.map(p => ({ ...p, y: p.y - diff }));
+          cameraUpdated = true;
         }
 
-        // Update score and generate new platforms
-        const currentPlatformIndex = platforms.findIndex(p => 
-          newY + PLAYER_SIZE >= p.y && 
-          newY + PLAYER_SIZE <= p.y + PLATFORM_HEIGHT &&
-          newX + PLAYER_SIZE > p.x && 
-          newX < p.x + p.width
-        );
-        
-        if (currentPlatformIndex > highestPlatform) {
-          setHighestPlatform(currentPlatformIndex);
-          setScore(currentPlatformIndex);
+  // Update score when landing on a HIGHER platform (using floor number)
+  if (nearestPlatform && !shouldEndGame) {
+        const rawFloorNumber = nearestPlatform.platform.floorNumber;
+        const computedFloorFromY = Math.max(0, Math.round((GROUND_Y - nearestPlatform.platform.y) / PLATFORM_GAP));
+        const landedFloor = rawFloorNumber !== undefined ? rawFloorNumber : computedFloorFromY;
+
+        if (landedFloor > lastLandedFloorRef.current) {
+          setHighestPlatform(landedFloor);
+          setScore(landedFloor);
+          highestPlatformRef.current = landedFloor;
+          lastLandedFloorRef.current = landedFloor;
           
           // Set checkpoint every 5 platforms
-          if (currentPlatformIndex % 5 === 0 && currentPlatformIndex > 0) {
-            setCheckpoint(currentPlatformIndex);
+          if (landedFloor % 5 === 0 && landedFloor > 0) {
+            setCheckpoint(landedFloor);
           }
           
           // Generate new platform
-          const topPlatform = platforms[platforms.length - 1];
-          const width = Math.max(MIN_PLATFORM_WIDTH, INITIAL_PLATFORM_WIDTH - platforms.length * 2.5);
-          const hasGate = platforms.length > 15 && Math.random() < 0.4; // 40% chance after floor 15
-          // Add hidden traps every 10-12 floors (floors 10,11,12, 20,21,22, etc.)
-          const floorMod = platforms.length % 10;
+          const topPlatform = updatedPlatforms[updatedPlatforms.length - 1];
+          const width = Math.max(MIN_PLATFORM_WIDTH, INITIAL_PLATFORM_WIDTH - updatedPlatforms.length * 2.5);
+          const hasGate = updatedPlatforms.length > 15 && Math.random() < 0.4;
+          const floorMod = updatedPlatforms.length % 10;
           const hasTrap = !hasGate && (floorMod === 0 || floorMod === 1 || floorMod === 2);
           const trapWidth = hasTrap ? Math.min(width * 0.4, 25) : 0;
           const trapX = hasTrap ? Math.random() * (width - trapWidth) : 0;
           
-          setPlatforms(prev => [...prev, {
+          const newPlatform = {
             x: Math.random() * (CANVAS_WIDTH - width),
             y: topPlatform.y - PLATFORM_GAP,
             width,
-            color: `hsl(${200 + platforms.length * 10}, 70%, 60%)`,
+            color: `hsl(${200 + updatedPlatforms.length * 10}, 70%, 60%)`,
+            floorNumber: landedFloor + 1,
             hasGate: hasGate,
             gateOpenLeft: hasGate ? Math.random() < 0.5 : undefined,
             hasTrap: hasTrap,
@@ -505,22 +600,42 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
             trapX: trapX,
             trapWidth: trapWidth,
             velocityX: PLATFORM_SPEED,
-            direction: Math.random() < 0.5 ? 1 : -1 // Random initial direction
-          }]);
+            direction: Math.random() < 0.5 ? 1 : -1
+          };
+          
+          // Add new platform and clean up old ones
+          updatedPlatforms = [...updatedPlatforms.filter(p => p.y < cameraYRef.current + CANVAS_HEIGHT * PLATFORM_CLEANUP_MULTIPLIER), newPlatform];
+        }
         }
 
         // Check if fallen off screen
-        if (newY > CANVAS_HEIGHT + 100) {
-          endGame();
+        const lowestPlatform = updatedPlatforms.reduce((lowest, p) => Math.max(lowest, p.y), 0);
+        if (newY > lowestPlatform + FALL_OFF_DISTANCE) {
+          shouldEndGame = true;
+          newIsJumping = false; // Reset jump state for next game
         }
 
-        return {
+        // Batch state updates at the end for better performance
+        const newPlayerState = {
           x: newX,
           y: newY,
           velocityY: newVelocityY,
           isJumping: newIsJumping
         };
-      });
+        
+        // Update ref FIRST so jump() reads current state
+        playerRef.current = newPlayerState;
+        
+        setPlatforms(updatedPlatforms);
+        setPlayer(newPlayerState);
+        
+        // End game if needed (after state update)
+        if (shouldEndGame && !endGameScheduled && gameStateRef.current === 'playing') {
+          requestAnimationFrame(() => endGame());
+        }
+
+      // Draw canvas AFTER state updates are queued
+      drawCanvas();
 
       animationRef.current = requestAnimationFrame(gameLoop);
     };
@@ -531,15 +646,19 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [gameState, platforms, highestPlatform]);
+  }, [gameState]);
 
-  // Draw canvas
-  useEffect(() => {
+  // Draw function (called from game loop)
+  const drawCanvas = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    const currentPlatforms = platformsRef.current;
+    const currentPlayer = playerRef.current;
+    const currentScore = scoreRef.current;
 
     // Clear with gradient
     const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
@@ -549,7 +668,7 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     // Draw platforms
-    platforms.forEach((platform, index) => {
+    currentPlatforms.forEach((platform, index) => {
       if (platform.y < CANVAS_HEIGHT && platform.y > -PLATFORM_HEIGHT) {
         // Shadow
         ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
@@ -695,8 +814,8 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
     });
 
     // Draw player as pixel-art human
-    const px = player.x;
-    const py = player.y;
+    const px = currentPlayer.x;
+    const py = currentPlayer.y;
     
     // Shadow
     ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
@@ -724,58 +843,41 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
     ctx.fillStyle = '#1e40af';
     ctx.fillRect(px + 8, py + 22, 4, 6);
     ctx.fillRect(px + 14, py + 22, 4, 6);
-
-    // Draw score
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 24px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText(`Floor ${score}`, CANVAS_WIDTH / 2, 40);
-
-  }, [platforms, player, score]);
+  };
 
   const jump = () => {
-    if (!player.isJumping && gameState === 'playing') {
+    if (gameState !== 'playing') return;
+    
+    // Use ref to get current state to avoid stale closure
+    const currentPlayerState = playerRef.current;
+    // Only allow jump when on ground (not in air)
+    if (!currentPlayerState.isJumping) {
+      playSound('jump');
+      jumpStartY.current = currentPlayerState.y; // Remember where we jumped from
+      framesSinceJump.current = 0; // Reset frame counter to prevent immediate re-landing
       setPlayer(prev => ({
         ...prev,
         velocityY: JUMP_FORCE,
         isJumping: true
       }));
-      // Play jump sound if not muted
-      try {
-        const muted = localStorage.getItem('game_sounds_muted') === 'true';
-        if (!muted) {
-          jumpSound.current.currentTime = 0;
-          jumpSound.current.volume = 0.6;
-          jumpSound.current.play().catch(e => console.log('Jump sound failed:', e));
-        }
-      } catch (e) {
-        console.log('Jump sound error:', e);
-      }
     }
   };
 
   const endGame = () => {
+    if (gameStateRef.current !== 'playing') return; // Prevent double-processing
+    const currentScore = scoreRef.current;
+    console.log('JumpClimb: Game Over! Score:', currentScore);
     setGameState('gameover');
-    
-    // Play fail sound if not muted
-    try {
-      const muted = localStorage.getItem('game_sounds_muted') === 'true';
-      if (!muted) {
-        failSound.current.currentTime = 0;
-        failSound.current.volume = 0.4;
-        failSound.current.play().catch(e => console.log('Sound play failed:', e));
-      }
-    } catch (e) {
-      console.log('Fail sound error:', e);
-    }
+    playSound('fail');
     
     // Only award darts for complete sets of 5 floors (1 dart per floor)
-    const completedSets = Math.floor(score / 5);
+    const completedSets = Math.floor(currentScore / 5);
     const dartPoints = completedSets * 5;
+    console.log('JumpClimb: Dart points calculated:', dartPoints, '(completedSets:', completedSets, ')');
     setFinalScore(dartPoints);
     
     // Check if can continue (fell from high enough)
-    const fellFrom = score > checkpoint + 3;
+    const fellFrom = currentScore > checkpoint + 3;
     setCanContinue(fellFrom && checkpoint > 0);
 
     // Consume a life
@@ -798,9 +900,11 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
 
     // Add score to leaderboard immediately
     if (dartPoints > 0) {
-      addTransaction('Game', dartPoints, `Jump Climb - Floor ${score}`, 'jump-climb');
+      console.log('JumpClimb: Adding', dartPoints, 'darts to wallet');
+      addTransaction('Game', dartPoints, `Jump Climb - Floor ${currentScore}`, 'jump-climb');
       
       const userProfile = leaderboardService.getUserProfile();
+      console.log('JumpClimb: User profile:', userProfile);
       if (userProfile) {
         leaderboardService.addScore(userProfile.username, userProfile.country, dartPoints, 'jump-climb');
         
@@ -816,14 +920,14 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
 
     // Update high score
     const gameStateData = JSON.parse(localStorage.getItem('gameState') || '{}');
-    if (score > (gameStateData.highScores?.jumpClimb || 0)) {
+    if (currentScore > (gameStateData.highScores?.jumpClimb || 0)) {
       gameStateData.highScores = gameStateData.highScores || {};
-      gameStateData.highScores.jumpClimb = score;
+      gameStateData.highScores.jumpClimb = currentScore;
       localStorage.setItem('gameState', JSON.stringify(gameStateData));
       
       // Sync high score to Firebase
       firebaseStorage.updateJumpClimbProgress({
-        highScore: score
+        highScore: currentScore
       }).catch(err => console.log('Firebase sync failed:', err));
     }
 
@@ -836,8 +940,10 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
   };
 
   const handleRewardAd = () => {
+    const currentScore = scoreRef.current;
     const bonusDarts = finalScore; // Additional bonus points (same as base)
-    addTransaction('Game', bonusDarts, `Jump Climb - Floor ${score} (2x Bonus)`, 'jump-climb');
+    console.log('JumpClimb: Reward ad watched! Adding bonus:', bonusDarts, 'darts');
+    addTransaction('Game', bonusDarts, `Jump Climb - Floor ${currentScore} (2x Bonus)`, 'jump-climb');
     
     const userProfile = leaderboardService.getUserProfile();
     if (userProfile) {
@@ -855,7 +961,7 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
     setShowRewardModal(false);
     
     if (onGameComplete) {
-      onGameComplete(score);
+      onGameComplete(currentScore);
     }
   };
 
@@ -864,8 +970,35 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
     setShowRewardModal(false);
     
     if (onGameComplete) {
-      onGameComplete(score);
+      onGameComplete(scoreRef.current);
     }
+  };
+
+  const findOrCreateCheckpointPlatform = (targetFloor: number, currentPlatforms: Platform[]) => {
+    const existing = currentPlatforms.find(p => p.floorNumber === targetFloor);
+    if (existing) {
+      return { platform: existing, platforms: currentPlatforms };
+    }
+
+    const width = Math.max(MIN_PLATFORM_WIDTH, INITIAL_PLATFORM_WIDTH - targetFloor * 2.5);
+    const y = GROUND_Y - targetFloor * PLATFORM_GAP;
+    const newPlatform: Platform = {
+      x: Math.random() * (CANVAS_WIDTH - width),
+      y,
+      width,
+      color: `hsl(${200 + targetFloor * 10}, 70%, 60%)`,
+      floorNumber: targetFloor,
+      hasGate: false,
+      gateOpenLeft: false,
+      hasTrap: false,
+      trapRevealed: false,
+      trapX: 0,
+      trapWidth: 0,
+      velocityX: PLATFORM_SPEED,
+      direction: Math.random() < 0.5 ? 1 : -1
+    };
+
+    return { platform: newPlatform, platforms: [...currentPlatforms, newPlatform] };
   };
 
   const handleContinueAd = () => {
@@ -873,17 +1006,27 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
     setGameState('playing');
     setScore(checkpoint);
     setHighestPlatform(checkpoint);
+    highestPlatformRef.current = checkpoint;
+    scoreRef.current = checkpoint;
     
-    // Reset player to checkpoint platform
-    const checkpointPlatform = platforms[checkpoint];
-    if (checkpointPlatform) {
-      setPlayer({
-        x: checkpointPlatform.x + checkpointPlatform.width / 2 - PLAYER_SIZE / 2,
-        y: checkpointPlatform.y - PLAYER_SIZE - 10,
-        velocityY: 0,
-        isJumping: false
-      });
-    }
+    const { platform: targetPlatform, platforms: mergedPlatforms } = findOrCreateCheckpointPlatform(checkpoint, platformsRef.current);
+
+    // Re-anchor camera and platforms so the checkpoint platform is back on screen
+    const desiredScreenY = CANVAS_HEIGHT / 2;
+    const offset = targetPlatform.y - desiredScreenY;
+    const repositionedPlatforms = mergedPlatforms.map(p => ({ ...p, y: p.y - offset }));
+    const targetScreenY = targetPlatform.y - offset;
+
+    setPlatforms(repositionedPlatforms);
+    setCameraY(cameraYRef.current - offset);
+    setPlayer({
+      x: targetPlatform.x + targetPlatform.width / 2 - PLAYER_SIZE / 2,
+      y: targetScreenY - PLAYER_SIZE - 10,
+      velocityY: 0,
+      isJumping: false
+    });
+
+    lastLandedFloorRef.current = checkpoint;
     
     setShowContinueModal(false);
   };
@@ -917,34 +1060,23 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
       setShowRefillModal(true);
       return;
     }
-    
-    // Consume a life
-    const newLives = currentLives - 1;
-    setCurrentLives(newLives);
-    localStorage.setItem('jumpclimb_lives', newLives.toString());
-    
-    // Start life refill timer if needed
-    if (newLives < MAX_LIVES && nextLifeTime === 0) {
-      const nextLife = Date.now() + LIFE_REFILL_MS;
-      setNextLifeTime(nextLife);
-      localStorage.setItem('jumpclimb_nextLife', nextLife.toString());
-    }
-    
-    // Sync to Firebase
-    firebaseStorage.updateJumpClimbProgress({
-      lives: newLives,
-      lastLifeUpdate: Date.now()
-    }).catch(err => console.log('Firebase sync failed:', err));
-    
+
     setGameState('playing');
     setScore(0);
     setHighestPlatform(0);
     setCheckpoint(0);
     setCameraY(0);
     setTrapActivatedIndex(-1);
+    
+    // Explicitly reset refs
+    highestPlatformRef.current = 0;
+    lastLandedFloorRef.current = 0;
+    jumpStartY.current = PLAYER_START_Y;
+    framesSinceJump.current = 100;
+    
     setPlayer({
       x: CANVAS_WIDTH / 2 - PLAYER_SIZE / 2,
-      y: CANVAS_HEIGHT - 150,
+      y: PLAYER_START_Y,
       velocityY: 0,
       isJumping: false
     });
@@ -991,7 +1123,6 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
               )}
             </div>
           </div>
-          <SoundToggle />
           <button
             onClick={resetGame}
             className="p-2 hover:bg-slate-700 rounded-lg"
@@ -1004,6 +1135,13 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
       {/* Game Canvas */}
       <div className="flex flex-col items-center justify-center p-4 mt-8">
         <div className="relative">
+          {/* Real-time Score Display - Top Left Corner */}
+          {gameState === 'playing' && (
+            <div className="absolute top-2 left-2 bg-purple-600/90 rounded-lg px-3 py-1.5 shadow-lg z-10">
+              <div className="text-2xl font-bold text-white">{score}</div>
+            </div>
+          )}
+          
           <canvas
             ref={canvasRef}
             width={CANVAS_WIDTH}
@@ -1074,7 +1212,7 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
         onClose={handleSkipReward}
         onRewardGranted={handleRewardAd}
         title="Double Your Darts!"
-        description={finalScore > 0 ? `Watch an ad to get ${finalScore * 2} Darts instead of ${finalScore}!` : `No Darts earned. Reach floor 5 to earn rewards!`}
+        description={finalScore > 0 ? `You earned ${finalScore} Darts! Watch an ad to earn ${finalScore} MORE (${finalScore * 2} total)!` : `No Darts earned. Reach floor 5 to earn rewards!`}
       />
 
       {/* Continue from Checkpoint Modal */}
@@ -1092,13 +1230,9 @@ const JumpClimb: React.FC<JumpClimbProps> = ({ onGameComplete }) => {
         onClose={() => setShowRefillModal(false)}
         onRewardGranted={handleLifeRefillAd}
         title="Refill All Lives"
-        description="Watch an ad to refill all 3 lives!"
+        description={`Watch an ad to refill all ${MAX_LIVES} lives!`}
       />
 
-      {/* Banner Ad */}
-      <div className="fixed bottom-20 left-0 right-0 px-4">
-        <BannerAd />
-      </div>
     </div>
   );
 };

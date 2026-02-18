@@ -81,6 +81,7 @@ export const leaderboardService = {
     score: number,
     game: 'stack-tower' | 'jump-climb'
   ) {
+    console.log('leaderboardService: addScore called -', { username, country, score, game });
     const data = this.getData();
     const now = Date.now();
 
@@ -97,6 +98,8 @@ export const leaderboardService = {
     data.daily.push(entry);
     data.weekly.push(entry);
     data.monthly.push(entry);
+    
+    console.log('leaderboardService: Entry added to all leaderboards');
 
     const oneDayMs = 24 * 60 * 60 * 1000;
     const sevenDaysMs = 7 * oneDayMs;
